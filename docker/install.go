@@ -205,11 +205,10 @@ func runElevated(ctx context.Context, name string, args ...string) error {
 
 // linkOnPath makes the installed binaries resolvable by name in later steps by
 // linking them into a directory already on PATH.
-func linkOnPath(fromDir string, names []string, aliases map[string]string, verify func(bin string) error) error {
+func linkOnPath(fromDir string, names []string, verify func(bin string) error) error {
 	_, err := pathlink.Ensure(pathlink.Options{
 		Names:   names,
 		FromDir: fromDir,
-		Aliases: aliases,
 		Verify:  verify,
 	})
 	return err
@@ -251,4 +250,23 @@ func readFile(path string) string {
 		return ""
 	}
 	return string(b)
+}
+
+func onPath(bin string) bool {
+	_, err := exec.LookPath(bin)
+	return err == nil
+}
+
+// urlExists reports whether a HEAD request to url returns 2xx.
+func urlExists(ctx context.Context, url string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }

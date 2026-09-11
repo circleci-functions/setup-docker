@@ -55,7 +55,7 @@ func InstallDockerCompose(ctx context.Context, opts ComposeOptions) error {
 	if _, err := placeBinary(ctx, binPath, opts.InstallDir, "docker-compose"); err != nil {
 		return err
 	}
-	return linkOnPath(opts.InstallDir, []string{"docker-compose"}, nil, func(bin string) error {
+	return linkOnPath(opts.InstallDir, []string{"docker-compose"}, func(bin string) error {
 		return verifyReportsVersion(ctx, bin, version)
 	})
 }

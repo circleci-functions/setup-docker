@@ -57,7 +57,7 @@ func InstallDocker(ctx context.Context, opts DockerOptions) error {
 	}
 	names = dockerFirst(names)
 
-	return linkOnPath(opts.InstallDir, names, nil, func(bin string) error {
+	return linkOnPath(opts.InstallDir, names, func(bin string) error {
 		return verifyReportsVersion(ctx, bin, number)
 	})
 }

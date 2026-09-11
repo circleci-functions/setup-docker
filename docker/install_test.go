@@ -126,6 +126,6 @@ func TestLinkOnPath(t *testing.T) {
 	dir := t.TempDir()
 	name := "faketool"
 	assert.NilError(t, os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\ntrue\n"), 0o755)) //nolint:gosec // test binary must be executable
-	err := linkOnPath(dir, []string{name}, nil, func(bin string) error { return nil })
+	err := linkOnPath(dir, []string{name}, func(bin string) error { return nil })
 	assert.NilError(t, err)
 }
