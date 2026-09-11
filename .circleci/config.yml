@@ -1,14 +1,131 @@
 version: 2.1
 
-jobs:
-  hello:
+orbs:
+  toolkit: https://raw.githubusercontent.com/circleci-functions/toolkit/refs/heads/main/orbs/toolkit.yml
+
+executors:
+  go:
+    docker:
+      - image: cimg/go:1.26
+  base:
     docker:
       - image: cimg/base:stable
+
+jobs:
+  test:
+    executor: go
     steps:
       - checkout
-      - run: echo "hello world"
+      - toolkit/private-mod-init
+      - restore_cache:
+          keys:
+            - setup-docker-go-{{ checksum "go.sum" }}-
+            - setup-docker-go-
+      - run: task lint
+      - run: task test
+      - save_cache:
+          key: setup-docker-go-{{ checksum "go.sum" }}-{{ epoch }}
+          paths:
+            - ~/.cache/go-build
+            - ~/go/pkg/mod
+
+  build:
+    executor: go
+    steps:
+      - checkout
+      - toolkit/private-mod-init
+      - restore_cache:
+          keys:
+            - setup-docker-go-{{ checksum "go.sum" }}-
+            - setup-docker-go-
+      - run: task dry-run
+      - persist_to_workspace:
+          root: .
+          paths:
+            - dist
+
+  acceptance:
+    executor: go
+    steps:
+      - checkout
+      - toolkit/private-mod-init
+      - restore_cache:
+          keys:
+            - setup-docker-go-{{ checksum "go.sum" }}-
+            - setup-docker-go-
+      - run:
+          name: Run acceptance tests
+          command: task acceptance
+
+  smoke-test:
+    executor: base
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Install docker-compose with the shipped binary
+          command: |
+            BIN="$PWD/dist/setup-docker/linux/amd64/setup-docker"
+            "$BIN" \
+              --install-docker=false --install-dockerize=false --install-goss=false \
+              --docker-compose-version v2.29.7
+            docker-compose --version | grep -q v2.29.7
+      - run:
+          name: A later step resolves docker-compose on PATH, unaided
+          command: |
+            command -v docker-compose
+            docker-compose --version
+
+  publish:
+    executor: go
+    steps:
+      - checkout
+      - toolkit/private-mod-init
+      - restore_cache:
+          keys:
+            - setup-docker-go-{{ checksum "go.sum" }}-
+            - setup-docker-go-
+      - toolkit/setup-aws-oidc:
+          role_arn: $FUNCTIONS_PUBLISHER_ROLE_ARN
+      - run:
+          name: Extract version from tag
+          command: |
+            VERSION="${CIRCLE_TAG}-$(git rev-parse --short HEAD)"
+            echo "export VERSION=$VERSION" >> "$BASH_ENV"
+      - run:
+          name: Build and publish
+          command: task publish VERSION="$VERSION"
 
 workflows:
-  hello:
+  test-publish:
     jobs:
-      - hello
+      - test:
+          context: [github-readonly]
+          filters:
+            tags:
+              only: /.*/
+      - build:
+          context: [github-readonly]
+          filters:
+            tags:
+              only: /.*/
+      - acceptance:
+          context: [github-readonly]
+          filters:
+            tags:
+              only: /.*/
+      - smoke-test:
+          requires: [build]
+          context: [github-readonly]
+          filters:
+            tags:
+              only: /.*/
+      - publish:
+          requires: [test, acceptance, smoke-test]
+          context: [functions-publisher, github-readonly]
+          filters:
+            tags:
+              only: /^v\d+\.\d+\.\d+$/
+            branches:
+              ignore: /.*/
