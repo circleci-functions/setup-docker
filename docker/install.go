@@ -229,3 +229,26 @@ func installedVersionContains(ctx context.Context, bin, want string) bool {
 	}
 	return strings.Contains(string(out), want)
 }
+
+// verifyReportsVersion runs `bin --version` and confirms the output contains
+// want. It is the Verify passed to linkOnPath: the link is only accepted if the
+// binary PATH resolves is the one just installed.
+func verifyReportsVersion(ctx context.Context, bin, want string) error {
+	out, err := exec.CommandContext(ctx, bin, "--version").CombinedOutput() //nolint:gosec // bin is a binary this process installed
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(out), want) {
+		return fmt.Errorf("%s reports %q, expected %s", filepath.Base(bin), strings.TrimSpace(string(out)), want)
+	}
+	return nil
+}
+
+// readFile returns the file's contents as a string, or "" if it cannot be read.
+func readFile(path string) string {
+	b, err := os.ReadFile(path) //nolint:gosec // path is under a temp dir built by this process
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}

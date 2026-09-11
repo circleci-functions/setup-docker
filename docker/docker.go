@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -59,14 +58,7 @@ func InstallDocker(ctx context.Context, opts DockerOptions) error {
 	names = dockerFirst(names)
 
 	return linkOnPath(opts.InstallDir, names, nil, func(bin string) error {
-		out, err := exec.CommandContext(ctx, bin, "--version").CombinedOutput() //nolint:gosec // bin is the docker binary just installed
-		if err != nil {
-			return err
-		}
-		if !strings.Contains(string(out), number) {
-			return fmt.Errorf("installed docker reports %q, expected %s", strings.TrimSpace(string(out)), number)
-		}
-		return nil
+		return verifyReportsVersion(ctx, bin, number)
 	})
 }
 
