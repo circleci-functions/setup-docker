@@ -3,6 +3,7 @@
 package setupdocker_test
 
 import (
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -11,6 +12,10 @@ import (
 
 	"github.com/circleci-functions/toolkit/sdk/sdktest"
 )
+
+// versionPattern matches a dotted version like 0.15.0 or v2.29.7, so a tool's
+// --version output can be checked without pinning to a specific release.
+var versionPattern = regexp.MustCompile(`\d+\.\d+`)
 
 // onlyThisTool returns the flags that disable every install except the named
 // one, so a test exercises a single tool.
@@ -61,7 +66,7 @@ func TestInstallDockerizeLatest(t *testing.T) {
 
 	later, err := sdktest.LaterStep(t, "dockerize", "--version")
 	assert.NilError(t, err, later)
-	assert.Assert(t, strings.Contains(later, "dockerize version"), later)
+	assert.Assert(t, versionPattern.MatchString(later), later)
 }
 
 func TestInstallGossLatest(t *testing.T) {
@@ -75,7 +80,7 @@ func TestInstallGossLatest(t *testing.T) {
 
 	later, err := sdktest.LaterStep(t, "goss", "--version")
 	assert.NilError(t, err, later)
-	assert.Assert(t, strings.Contains(later, "goss"), later)
+	assert.Assert(t, versionPattern.MatchString(later), later)
 }
 
 func TestGossSkippedWhenDefaultedOffLinux(t *testing.T) {

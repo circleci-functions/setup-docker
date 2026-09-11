@@ -6,6 +6,12 @@ import (
 	"gotest.tools/v3/assert"
 )
 
+func TestGossArch(t *testing.T) {
+	assert.Equal(t, gossArch("amd64"), "x86_64")
+	assert.Equal(t, gossArch("arm64"), "arm64")
+	assert.Equal(t, gossArch(""), "x86_64")
+}
+
 func TestGossSupport(t *testing.T) {
 	tests := []struct {
 		name     string
