@@ -8,11 +8,15 @@ package main
 
 import (
 	"context"
+	"os"
+	"strings"
 
 	"github.com/alecthomas/kong"
 
 	"github.com/circleci-functions/toolkit/functionyaml"
 	"github.com/circleci-functions/toolkit/sdk"
+
+	"github.com/circleci-functions/setup-docker/docker"
 )
 
 type cli struct {
@@ -38,9 +42,54 @@ type cli struct {
 	CredentialHelperName       string `help:"Credential helper to install; chosen by platform if empty." enum:",pass,osxkeychain" default:""`
 	CredentialHelperArch       string `help:"Credential helper architecture (Linux)." enum:"amd64,arm64" default:"amd64"`
 	CredentialHelperReleaseTag string `help:"Credential helper release tag to install, or empty for latest." default:""`
+
+	gossExplicit bool
 }
 
-func (c *cli) Run(ctx context.Context, client *sdk.Client) error {
+func (c *cli) Run(ctx context.Context) error {
+	if c.InstallDocker {
+		if err := docker.InstallDocker(ctx, docker.DockerOptions{
+			Version:    c.Version,
+			InstallDir: c.InstallDir,
+		}); err != nil {
+			return err
+		}
+	}
+	if c.InstallDockerCompose {
+		if err := docker.InstallDockerCompose(ctx, docker.ComposeOptions{
+			Version:    c.DockerComposeVersion,
+			InstallDir: c.DockerComposeInstallDir,
+		}); err != nil {
+			return err
+		}
+	}
+	if c.InstallDockerize {
+		if err := docker.InstallDockerize(ctx, docker.DockerizeOptions{
+			Version:    c.DockerizeVersion,
+			InstallDir: c.DockerizeInstallDir,
+		}); err != nil {
+			return err
+		}
+	}
+	if c.InstallGoss {
+		if err := docker.InstallGoss(ctx, docker.GossOptions{
+			Version:      c.GossVersion,
+			InstallDir:   c.GossInstallDir,
+			Architecture: c.GossArchitecture,
+			Explicit:     c.gossExplicit,
+		}); err != nil {
+			return err
+		}
+	}
+	if c.InstallCredentialHelper {
+		if err := docker.InstallCredentialHelper(ctx, docker.CredentialHelperOptions{
+			Name:       c.CredentialHelperName,
+			Arch:       c.CredentialHelperArch,
+			ReleaseTag: c.CredentialHelperReleaseTag,
+		}); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -48,7 +97,7 @@ func main() {
 	sdk.Run(run)
 }
 
-func run(ctx context.Context, client *sdk.Client) error {
+func run(ctx context.Context, _ *sdk.Client) error {
 	var flags cli
 	kCtx := kong.Parse(&flags,
 		kong.Name("setup-docker"),
@@ -56,7 +105,18 @@ func run(ctx context.Context, client *sdk.Client) error {
 		kong.UsageOnError(),
 		functionyaml.Embed(),
 	)
+	flags.gossExplicit = gossFlagProvided(os.Args[1:])
 	kCtx.BindTo(ctx, (*context.Context)(nil))
-	kCtx.Bind(client)
 	return kCtx.Run(ctx)
+}
+
+// gossFlagProvided reports whether the caller passed --install-goss explicitly,
+// which decides whether an unsupported platform errors or is quietly skipped.
+func gossFlagProvided(args []string) bool {
+	for _, a := range args {
+		if a == "--install-goss" || strings.HasPrefix(a, "--install-goss=") {
+			return true
+		}
+	}
+	return false
 }
