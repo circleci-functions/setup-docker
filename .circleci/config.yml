@@ -1,14 +1,53 @@
 version: 2.1
 
-jobs:
-  hello:
+orbs:
+  toolkit: https://raw.githubusercontent.com/circleci-functions/toolkit/refs/heads/main/orbs/toolkit.yml
+
+executors:
+  go:
     docker:
-      - image: cimg/base:stable
+      - image: cimg/go:1.26
+
+jobs:
+  test:
+    executor: go
     steps:
       - checkout
-      - run: echo "hello world"
+      - toolkit/private-mod-init
+      - restore_cache:
+          keys:
+            - setup-docker-go-{{ checksum "go.sum" }}-
+            - setup-docker-go-
+      - run: task lint
+      - run: task lint-tasks
+      - run: task test
+      - store_test_results:
+          path: test-results
+      - save_cache:
+          key: setup-docker-go-{{ checksum "go.sum" }}-{{ epoch }}
+          paths:
+            - ~/.cache/go-build
+            - ~/go/pkg/mod
+
+  build:
+    executor: go
+    steps:
+      - checkout
+      - toolkit/private-mod-init
+      - restore_cache:
+          keys:
+            - setup-docker-go-{{ checksum "go.sum" }}-
+            - setup-docker-go-
+      - run: task dry-run
+      - persist_to_workspace:
+          root: .
+          paths:
+            - dist
 
 workflows:
-  hello:
+  test-publish:
     jobs:
-      - hello
+      - test:
+          context: [github-readonly]
+      - build:
+          context: [github-readonly]
