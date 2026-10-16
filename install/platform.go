@@ -115,3 +115,34 @@ func (p Platform) gossAsset(version string) (asset, sums string, err error) {
 }
 
 const alpineRelease = "/etc/alpine-release"
+
+// ECRLoginURLs returns the download URL and .sha256 URL for docker-credential-ecr-login.
+func (p Platform) ECRLoginURLs(base, version string) (binURL, sumsURL string, err error) {
+	goos, arch, err := p.pick(goOS, goArch)
+	if err != nil {
+		return "", "", err
+	}
+	bin := fmt.Sprintf("%s/%s/%s-%s/docker-credential-ecr-login", base, version, goos, arch)
+	if p.OS == "windows" {
+		bin += ".exe"
+	}
+	return bin, bin + ".sha256", nil
+}
+
+// CredHelperAsset returns the asset filename for docker-credential-{name} from
+// github.com/docker/docker-credential-helpers. Windows is not supported.
+func (p Platform) CredHelperAsset(name, version string) (string, error) {
+	if p.OS == "windows" {
+		return "", fmt.Errorf("credentials-store is not supported on Windows")
+	}
+	goos, arch, err := p.pick(goOS, goArch)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("docker-credential-%s-%s.%s-%s", name, version, goos, arch), nil
+}
+
+// Exe appends .exe on Windows, otherwise returns name unchanged.
+func (p Platform) Exe(name string) string {
+	return p.exe(name)
+}
