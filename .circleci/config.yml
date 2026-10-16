@@ -173,6 +173,52 @@ jobs:
       - run:
           name: Verify docker-compose version
           command: docker-compose version
+      - run:
+          name: Override Docker CLI and buildx to pinned versions
+          command: ./dist/setup-docker/linux/amd64/setup-docker --docker-version 29.9.1 --buildx-version v0.38.0
+      - run:
+          name: Assert overridden versions and remote engine reachable
+          command: |
+            docker --version | grep -q 29.9.1 || { echo "docker --version should contain 29.9.1"; exit 1; }
+            docker buildx version | grep -q v0.38.0 || { echo "docker buildx version should contain v0.38.0"; exit 1; }
+            docker version
+
+  smoke-preinstalled:
+    executor: base
+    steps:
+      - attach_workspace:
+          at: .
+      - run:
+          name: Run setup-docker with no args on pre-installed image
+          command: ./dist/setup-docker/linux/amd64/setup-docker 2>&1 | tee /tmp/sd-preinstalled-out.txt
+      - run:
+          name: Assert pre-installed tools kept and compose works
+          command: |
+            grep -q "docker.*is already installed" /tmp/sd-preinstalled-out.txt || { echo "Expected docker already installed; got:"; cat /tmp/sd-preinstalled-out.txt; exit 1; }
+            grep -q "compose.*is already installed" /tmp/sd-preinstalled-out.txt || { echo "Expected compose already installed; got:"; cat /tmp/sd-preinstalled-out.txt; exit 1; }
+            docker compose version
+
+  smoke-bare-ubuntu:
+    docker:
+      - image: ubuntu:24.04
+    steps:
+      - run:
+          name: Install prerequisites
+          command: apt-get update && apt-get install -y ca-certificates
+      - attach_workspace:
+          at: .
+      - run:
+          name: Install Docker with defaults
+          command: ./dist/setup-docker/linux/amd64/setup-docker 2>&1 | tee /tmp/sd-bare-out.txt
+      - run:
+          name: Assert the installed versions resolve in a later step
+          command: |
+            installed() { sed -n "s/^setup-docker: installed $1 v\{0,1\}\([^,]*\).*/\1/p" /tmp/sd-bare-out.txt; }
+            for check in "docker:docker --version" "compose:docker compose version" "buildx:docker buildx version"; do
+              tool=${check%%:*}; cmd=${check#*:}; want=$(installed "$tool")
+              [ -n "$want" ] || { echo "setup-docker did not install $tool"; cat /tmp/sd-bare-out.txt; exit 1; }
+              $cmd | grep -qF "$want" || { echo "$cmd does not report $want"; $cmd; exit 1; }
+            done
 
 workflows:
   test-publish:
@@ -195,6 +241,10 @@ workflows:
           requires: [build]
       - remote-docker-smoke:
           requires: [build]
+      - smoke-preinstalled:
+          requires: [build]
+      - smoke-bare-ubuntu:
+          requires: [build]
       - toolkit/release-pr:
           name: release-pr
           executor: go
@@ -209,6 +259,8 @@ workflows:
             - smoke-macos
             - smoke-windows
             - remote-docker-smoke
+            - smoke-preinstalled
+            - smoke-bare-ubuntu
           context: [github-release]
           filters:
             branches:

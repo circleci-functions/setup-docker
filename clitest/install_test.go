@@ -218,3 +218,47 @@ func TestCLI_404ForRequestedVersion(t *testing.T) {
 	assert.Assert(t, strings.Contains(out, "compose:"), "error must mention tool name: %s", out)
 	assert.Assert(t, strings.Contains(out, srv.URL()), "error must contain the URL: %s", out)
 }
+
+// TestCLI_EqualSignFlagForm: CircleCI passes each with: value as --flag=value,
+// so booleans arrive as --install-docker=false and strings as --compose-version=<v>.
+// Verify the equal-sign form produces the same outcome as --no-install-docker etc.
+func TestCLI_EqualSignFlagForm(t *testing.T) {
+	skipWindows(t)
+	srv := newFakeServer(t)
+	s, run := sandbox(t)
+	binDir := s.BinDir
+
+	args := []string{
+		"--download-url", srv.URL(),
+		"--install-dir", binDir,
+		"--install-docker=false",
+		"--install-buildx=false",
+		"--compose-version=" + fakeComposeVersion,
+		"--install-dockerize=true",
+	}
+	out, err := run(t, map[string]string{"PATH": binDir}, args...)
+	assert.NilError(t, err, "equal-sign form failed:\n%s", out)
+	assert.Assert(t, !strings.Contains(out, "installed docker "), "docker should not be installed: %s", out)
+	assert.Assert(t, !strings.Contains(out, "installed buildx "), "buildx should not be installed: %s", out)
+	assert.Assert(t, strings.Contains(out, "compose"), "compose expected: %s", out)
+	assert.Assert(t, strings.Contains(out, "dockerize"), "dockerize expected: %s", out)
+
+	pp := currentPlatformPaths()
+	assert.Assert(t, srv.requestCount(pp.dockerTarPath) == 0, "docker tar should not be requested")
+
+	t.Run("install-docker=true accepted", func(t *testing.T) {
+		srv2 := newFakeServer(t)
+		s2, run2 := sandbox(t)
+		args2 := []string{
+			"--download-url", srv2.URL(),
+			"--install-dir", s2.BinDir,
+			"--install-docker=true",
+			"--no-install-buildx",
+			"--no-install-compose",
+			"--docker-version", fakeDockerDownloadVersion,
+		}
+		out2, err2 := run2(t, map[string]string{"PATH": s2.BinDir}, args2...)
+		assert.NilError(t, err2, "--install-docker=true failed:\n%s", out2)
+		assert.Assert(t, strings.Contains(out2, "installed docker"), "docker should be installed: %s", out2)
+	})
+}
