@@ -75,7 +75,7 @@ commands:
             base=https://github.com/hadolint/hadolint/releases/download/v2.15.1
             bin=./<< parameters.asset >>
             curl -fsSL -o "$bin" "$base/<< parameters.asset >>"
-            want=$(curl -fsSL "$base/checksums.sha256" | grep " << parameters.asset >>$" | cut -d' ' -f1)
+            want=$(curl -fsSL "$base/checksums.sha256" | grep -E "[ *]<< parameters.asset >>$" | cut -d' ' -f1)
             got=$(<< parameters.sha >> "$bin" | cut -d' ' -f1)
             echo "SPIKE hadolint_checksum_listed=$([ -n "$want" ] && echo yes || echo no) match=$([ "$want" = "$got" ] && echo yes || echo no)"
             chmod +x "$bin"
@@ -172,6 +172,14 @@ jobs:
                 -f spike/win/Dockerfile spike/win > /tmp/wbk.log 2>&1 || code=$?
               echo "SPIKE win_buildkit_build_exit=$code last=$(tail -1 /tmp/wbk.log) cache=$(du -sh /tmp/wbkcache 2>/dev/null | cut -f1)"
             fi
+
+  hadolint-windows:
+    machine:
+      image: windows-server-2022-gui:current
+      shell: bash.exe -eo pipefail
+    resource_class: windows.medium
+    steps:
+      - checkout
       - hadolint:
           asset: hadolint-windows-x86_64.exe
 
@@ -236,13 +244,6 @@ jobs:
 workflows:
   spike:
     jobs:
-      - digest-amd64
-      - digest-arm64
-      - merge-no-daemon:
-          requires: [digest-amd64, digest-arm64]
-      - merge-remote-docker:
-          requires: [digest-amd64, digest-arm64]
-      - windows-build
       - hadolint-linux
       - hadolint-macos
-      - sbom
+      - hadolint-windows
