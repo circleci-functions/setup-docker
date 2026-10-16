@@ -190,7 +190,8 @@ jobs:
               -e REGISTRY_AUTH_HTPASSWD_REALM=test \
               -e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd \
               registry:2
-            timeout 30 sh -c 'until curl -sf http://localhost:5000/v2/ 2>/dev/null; do sleep 1; done'
+            # An auth-enabled registry answers 401 once it's up.
+            timeout 30 sh -c 'until [ "$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/v2/)" = 401 ]; do sleep 1; done'
       - run:
           name: Log in to local registry
           command: ./dist/setup-docker/linux/amd64/setup-docker login --registry localhost:5000
