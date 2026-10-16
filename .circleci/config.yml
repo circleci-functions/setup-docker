@@ -1,7 +1,7 @@
 version: 2.1
 
-# Throwaway spike for the build command's assumptions. Never merged.
-# Every measurement is printed as a "SPIKE key=value" line.
+# Throwaway spike (round 2): merge, Windows builds, hadolint, SBOMs. Never merged.
+# Every measurement is printed as a "SPIKE key=value" line. Round 1 results are in the plan.
 
 commands:
   builder:
@@ -15,178 +15,234 @@ commands:
           command: |
             docker version --format 'SPIKE client={{.Client.Version}} server={{.Server.Version}}'
             echo "SPIKE buildx=$(docker buildx version)"
-            s=$(date +%s)
             docker buildx create --name spike --driver docker-container << parameters.opts >> --use --bootstrap
-            echo "SPIKE builder_bootstrap_s=$(( $(date +%s) - s ))"
 
-  cached-build:
+  push-by-digest:
+    parameters:
+      arch:
+        type: string
+    steps:
+      - checkout
+      - builder
+      - run:
+          name: Build natively for << parameters.arch >> and push by digest
+          command: |
+            img=ttl.sh/setup-docker-spike-<< pipeline.id >>
+            s=$(date +%s)
+            docker buildx build --progress=plain --platform linux/<< parameters.arch >> --provenance=false \
+              --output type=image,name=$img,push-by-digest=true,name-canonical=true,push=true \
+              --metadata-file /tmp/meta.json -f spike/arch/Dockerfile spike/arch
+            echo "SPIKE << parameters.arch >>_build_push_s=$(( $(date +%s) - s ))"
+            mkdir -p digests
+            jq -r '."containerimage.digest"' /tmp/meta.json | tee digests/<< parameters.arch >>
+            echo "SPIKE << parameters.arch >>_digest=$(cat digests/<< parameters.arch >>)"
+      - persist_to_workspace:
+          root: .
+          paths:
+            - digests/<< parameters.arch >>
+
+  merge-digests:
     parameters:
       label:
         type: string
     steps:
+      - attach_workspace:
+          at: .
       - run:
-          name: Build (<< parameters.label >>) with a local cache
+          name: Merge the per-arch digests into one tag (<< parameters.label >>)
           command: |
-            from=""
-            if [ -f /tmp/buildx-cache/index.json ]; then from="--cache-from type=local,src=/tmp/buildx-cache"; fi
+            img=ttl.sh/setup-docker-spike-<< pipeline.id >>
+            echo "SPIKE << parameters.label >>_docker_info=$(docker info --format '{{.ServerVersion}}' 2>&1 | head -1)"
             s=$(date +%s)
-            docker buildx build --progress=plain $from \
-              --cache-to type=local,dest=/tmp/buildx-cache-new,mode=max \
-              -f spike/Dockerfile spike 2>&1 | tee /tmp/build.log
-            echo "SPIKE << parameters.label >>_build_s=$(( $(date +%s) - s ))"
-            echo "SPIKE << parameters.label >>_cached_steps=$(grep -c ' CACHED' /tmp/build.log)"
-            if grep -q 'built-blob' /tmp/build.log; then r=ran; else r=cached; fi
-            echo "SPIKE << parameters.label >>_slow_step=$r"
-            echo "SPIKE << parameters.label >>_cache_size=$(du -sh /tmp/buildx-cache-new | cut -f1)"
-      - run:
-          name: Build (<< parameters.label >>) again with --load
-          command: |
-            s=$(date +%s)
-            docker buildx build --progress=plain --cache-from type=local,src=/tmp/buildx-cache-new \
-              --load -t spike:local -f spike/Dockerfile spike > /tmp/load.log 2>&1 || { cat /tmp/load.log; exit 1; }
-            echo "SPIKE << parameters.label >>_load_build_s=$(( $(date +%s) - s ))"
-            docker run --rm spike:local
+            code=0
+            docker buildx imagetools create -t $img:1h-<< parameters.label >> $img@$(cat digests/amd64) $img@$(cat digests/arm64) || code=$?
+            echo "SPIKE << parameters.label >>_create_exit=$code create_s=$(( $(date +%s) - s ))"
+            docker buildx imagetools inspect $img:1h-<< parameters.label >> --raw \
+              | jq -r '[.manifests[] | "\(.platform.os)/\(.platform.architecture)"] | join(",")' \
+              | sed 's/^/SPIKE << parameters.label >>_index=/' || true
 
-  restore-buildx-cache:
+  hadolint:
     parameters:
-      prefix:
+      asset:
         type: string
+      sha:
+        type: string
+        default: sha256sum
     steps:
-      - restore_cache:
-          keys:
-            - << parameters.prefix >>-{{ .Revision }}-
       - run:
-          name: Use the restored cache as the import source
+          name: hadolint (<< parameters.asset >>)
           command: |
-            if [ -d /tmp/buildx-cache-new ]; then mv /tmp/buildx-cache-new /tmp/buildx-cache; fi
-            echo "SPIKE restored_cache_size=$(du -sh /tmp/buildx-cache 2>/dev/null | cut -f1)"
+            base=https://github.com/hadolint/hadolint/releases/download/v2.15.1
+            bin=./<< parameters.asset >>
+            curl -fsSL -o "$bin" "$base/<< parameters.asset >>"
+            want=$(curl -fsSL "$base/checksums.sha256" | grep " << parameters.asset >>$" | cut -d' ' -f1)
+            got=$(<< parameters.sha >> "$bin" | cut -d' ' -f1)
+            echo "SPIKE hadolint_checksum_listed=$([ -n "$want" ] && echo yes || echo no) match=$([ "$want" = "$got" ] && echo yes || echo no)"
+            chmod +x "$bin"
+            echo "SPIKE hadolint_version=$("$bin" --version)"
+            for args in "" "--failure-threshold error" "--format json" "--format sarif" "--format checkstyle" "--format junit"; do
+              code=0; "$bin" $args spike/check-warn/Dockerfile > out.txt 2>&1 || code=$?
+              echo "SPIKE hadolint[$args]_exit=$code first_line=$(head -c 160 out.txt | head -1)"
+            done
+            code=0; "$bin" spike/check-clean/Dockerfile > /dev/null 2>&1 || code=$?
+            echo "SPIKE hadolint_clean_exit=$code"
 
 jobs:
-  remote-cold:
-    docker:
-      - image: cimg/base:current
-    steps:
-      - checkout
-      - setup_remote_docker
-      - builder
-      - cached-build:
-          label: remote_cold
-      - save_cache:
-          key: spike-remote-{{ .Revision }}-{{ .BuildNum }}
-          paths:
-            - /tmp/buildx-cache-new
-
-  remote-warm:
-    docker:
-      - image: cimg/base:current
-    steps:
-      - checkout
-      - setup_remote_docker
-      - restore-buildx-cache:
-          prefix: spike-remote
-      - builder
-      - cached-build:
-          label: remote_warm
-
-  machine-cold:
+  digest-amd64:
     machine:
       image: ubuntu-2404:current
     steps:
-      - checkout
-      - builder
-      - cached-build:
-          label: machine_cold
-      - save_cache:
-          key: spike-machine-{{ .Revision }}-{{ .BuildNum }}
-          paths:
-            - /tmp/buildx-cache-new
+      - push-by-digest:
+          arch: amd64
 
-  machine-warm:
+  digest-arm64:
     machine:
       image: ubuntu-2404:current
+    resource_class: arm.medium
     steps:
-      - checkout
-      - restore-buildx-cache:
-          prefix: spike-machine
-      - builder
-      - cached-build:
-          label: machine_warm
+      - push-by-digest:
+          arch: arm64
 
-  qemu-remote:
+  merge-no-daemon:
     docker:
       - image: cimg/base:current
     steps:
-      - checkout
+      - merge-digests:
+          label: nodaemon
+
+  merge-remote-docker:
+    docker:
+      - image: cimg/base:current
+    steps:
       - setup_remote_docker
+      - merge-digests:
+          label: remote
+
+  windows-build:
+    machine:
+      image: windows-server-2022-gui:current
+      shell: bash.exe -eo pipefail
+    resource_class: windows.medium
+    steps:
+      - checkout
       - run:
-          name: Register QEMU on the remote engine
+          name: Docker on the Windows executor
           command: |
-            s=$(date +%s)
-            docker run --privileged --rm tonistiigi/binfmt:qemu-v10.2.3 --install arm64
-            echo "SPIKE qemu_install_s=$(( $(date +%s) - s ))"
-      - builder
+            echo "SPIKE win_docker=$(docker version --format 'client={{.Client.Version}} server={{.Server.Version}} os={{.Server.Os}}' 2>&1)"
+            echo "SPIKE win_ostype=$(docker info --format '{{.OSType}}')"
+            echo "SPIKE win_buildx_preinstalled=$(docker buildx version 2>&1 | head -1)"
+            ls -la "$HOME/.docker/cli-plugins" 2>/dev/null || true
       - run:
-          name: Build and run an arm64 image on amd64
+          name: Classic docker build of a Windows image
           command: |
-            printf 'FROM alpine:3.22\nRUN uname -m > /arch\nCMD ["cat", "/arch"]\n' > /tmp/Dockerfile.arch
-            s=$(date +%s)
-            docker buildx build --progress=plain --platform linux/arm64 --load -t spike:arm -f /tmp/Dockerfile.arch /tmp
-            echo "SPIKE arm64_build_s=$(( $(date +%s) - s ))"
-            echo "SPIKE arm64_runs_as=$(docker run --rm --platform linux/arm64 spike:arm)"
+            s=$(date +%s); code=0
+            docker build -t spike-win -f spike/win/Dockerfile spike/win > /tmp/classic.log 2>&1 || code=$?
+            tail -5 /tmp/classic.log
+            echo "SPIKE win_classic_build_exit=$code s=$(( $(date +%s) - s ))"
+      - run:
+          name: buildx on Windows (docker driver, local cache, docker-container driver)
+          command: |
+            mkdir -p "$HOME/.docker/cli-plugins"
+            if ! docker buildx version >/dev/null 2>&1; then
+              curl -fsSL -o "$HOME/.docker/cli-plugins/docker-buildx.exe" \
+                https://github.com/docker/buildx/releases/download/v0.38.0/buildx-v0.38.0.windows-amd64.exe
+            fi
+            echo "SPIKE win_buildx=$(docker buildx version 2>&1 | head -1)"
+            docker buildx ls || true
+            code=0; docker buildx build --progress=plain -t spike-winx -f spike/win/Dockerfile spike/win > /tmp/bx.log 2>&1 || code=$?
+            echo "SPIKE win_buildx_docker_driver_exit=$code last=$(tail -1 /tmp/bx.log)"
+            code=0; docker buildx build --progress=plain --cache-to type=local,dest=/tmp/wincache \
+              -f spike/win/Dockerfile spike/win > /tmp/bxc.log 2>&1 || code=$?
+            echo "SPIKE win_buildx_local_cache_exit=$code last=$(tail -1 /tmp/bxc.log)"
+            code=0; docker buildx create --name wincontainer --driver docker-container --bootstrap > /tmp/dc.log 2>&1 || code=$?
+            echo "SPIKE win_docker_container_driver_exit=$code last=$(tail -1 /tmp/dc.log)"
+      - run:
+          name: BuildKit for Windows (experimental) via the remote driver
+          no_output_timeout: 10m
+          command: |
+            echo "SPIKE win_containerd=$(command -v containerd || sc.exe query containerd 2>&1 | head -3 | tr '\n' ' ')"
+            curl -fsSL -o /tmp/bk.tar.gz https://github.com/moby/buildkit/releases/download/v0.34.0/buildkit-v0.34.0.windows-amd64.tar.gz
+            mkdir -p /tmp/bk && tar -xzf /tmp/bk.tar.gz -C /tmp/bk && ls -R /tmp/bk | head -10
+            (/tmp/bk/bin/buildkitd.exe > /tmp/buildkitd.log 2>&1 &) ; sleep 15
+            echo "SPIKE win_buildkitd_log=$(tail -3 /tmp/buildkitd.log | tr '\n' ' ')"
+            code=0; docker buildx create --name winbk --driver remote npipe:////./pipe/buildkitd --bootstrap > /tmp/rm.log 2>&1 || code=$?
+            echo "SPIKE win_remote_driver_exit=$code last=$(tail -1 /tmp/rm.log)"
+            if [ $code = 0 ]; then
+              code=0; docker buildx build --builder winbk --progress=plain --cache-to type=local,dest=/tmp/wbkcache \
+                -f spike/win/Dockerfile spike/win > /tmp/wbk.log 2>&1 || code=$?
+              echo "SPIKE win_buildkit_build_exit=$code last=$(tail -1 /tmp/wbk.log) cache=$(du -sh /tmp/wbkcache 2>/dev/null | cut -f1)"
+            fi
+      - hadolint:
+          asset: hadolint-windows-x86_64.exe
 
-  multiarch-machine:
+  hadolint-linux:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - hadolint:
+          asset: hadolint-linux-x86_64
+
+  hadolint-macos:
+    macos:
+      xcode: "16.4.0"
+    steps:
+      - checkout
+      - hadolint:
+          asset: hadolint-macos-arm64
+          sha: shasum -a 256
+
+  sbom:
     machine:
       image: ubuntu-2404:current
     steps:
       - checkout
       - run:
-          name: Start a local registry and register QEMU
+          name: Local registry
           command: |
             docker run -d -p 5000:5000 --name registry registry:2
-            docker run --privileged --rm tonistiigi/binfmt:qemu-v10.2.3 --install arm64
             printf '[registry."localhost:5000"]\n  http = true\n' > /tmp/buildkitd.toml
       - builder:
           opts: --driver-opt network=host --config /tmp/buildkitd.toml
       - run:
-          name: Push multi-arch with and without provenance
+          name: SBOM attestation pushed with the image
           command: |
-            printf 'FROM alpine:3.22\nRUN uname -m > /arch\nCMD ["cat", "/arch"]\n' > /tmp/Dockerfile.arch
-            for p in clean:--provenance=false default:; do
-              tag=${p%%:*}; flag=${p#*:}
-              docker buildx build --progress=plain --platform linux/amd64,linux/arm64 $flag --push \
-                -t localhost:5000/spike:$tag -f /tmp/Dockerfile.arch /tmp > /tmp/push-$tag.log 2>&1 || { cat /tmp/push-$tag.log; exit 1; }
-              entries=$(curl -s -H 'Accept: application/vnd.oci.image.index.v1+json' \
-                http://localhost:5000/v2/spike/manifests/$tag | jq -r '[.manifests[] | "\(.platform.os)/\(.platform.architecture)"] | join(",")')
-              echo "SPIKE index_$tag=$entries"
-            done
-
-  checks:
-    machine:
-      image: ubuntu-2404:current
-    steps:
-      - checkout
+            s=$(date +%s)
+            docker buildx build --progress=plain --provenance=false --push -t localhost:5000/spike:plain -f spike/sbom/Dockerfile spike/sbom > /tmp/plain.log 2>&1
+            echo "SPIKE sbom_off_build_s=$(( $(date +%s) - s ))"
+            s=$(date +%s)
+            docker buildx build --progress=plain --provenance=false --sbom=true --push -t localhost:5000/spike:sbom -f spike/sbom/Dockerfile spike/sbom > /tmp/sbom.log 2>&1 || { cat /tmp/sbom.log; exit 1; }
+            echo "SPIKE sbom_on_build_s=$(( $(date +%s) - s ))"
+            grep -o 'docker/buildkit-syft-scanner[^ "]*' /tmp/sbom.log | head -1 | sed 's/^/SPIKE sbom_scanner_image=/'
+            idx=$(curl -s -H 'Accept: application/vnd.oci.image.index.v1+json' http://localhost:5000/v2/spike/manifests/sbom)
+            echo "SPIKE sbom_index=$(echo "$idx" | jq -r '[.manifests[] | "\(.platform.os)/\(.platform.architecture)"] | join(",")')"
+            code=0; docker buildx imagetools inspect localhost:5000/spike:sbom --format '{{ json .SBOM }}' > /tmp/sbom.json 2>&1 || code=$?
+            echo "SPIKE sbom_imagetools_exit=$code packages=$(jq '[.. | .packages? // empty | length] | add' /tmp/sbom.json 2>/dev/null)"
       - run:
-          name: Build check exit codes
+          name: SBOM written to a local directory, no registry
           command: |
-            echo "SPIKE buildx=$(docker buildx version)"
-            for d in check-clean check-warn check-error; do
-              code=0; docker buildx build --call=check spike/$d > /tmp/$d.log 2>&1 || code=$?
-              echo "SPIKE ${d}_exit=$code"
-              sed 's/^/    /' /tmp/$d.log
-            done
-            code=0; docker buildx build --call=check,format=json spike/check-warn > /tmp/warn.json 2>/dev/null || code=$?
-            echo "SPIKE check_warn_json_exit=$code"
-            jq -c '[.warnings[]?.ruleName]' /tmp/warn.json | sed 's/^/SPIKE check_warn_rules=/'
+            s=$(date +%s)
+            docker buildx build --progress=plain --sbom=true --output type=local,dest=/tmp/out -f spike/sbom/Dockerfile spike/sbom > /tmp/local.log 2>&1 || { cat /tmp/local.log; exit 1; }
+            echo "SPIKE sbom_local_s=$(( $(date +%s) - s ))"
+            echo "SPIKE sbom_local_files=$(ls /tmp/out | grep -i -E 'sbom|spdx' | tr '\n' ' ')"
+            f=$(ls /tmp/out/*sbom*.json 2>/dev/null | head -1)
+            [ -n "$f" ] && echo "SPIKE sbom_local_packages=$(jq '.predicate.packages | length' "$f")"
+      - run:
+          name: SBOM with --load (single platform, no push)
+          command: |
+            code=0; docker buildx build --progress=plain --sbom=true --load -t spike:sbomload -f spike/sbom/Dockerfile spike/sbom > /tmp/load.log 2>&1 || code=$?
+            echo "SPIKE sbom_with_load_exit=$code last=$(tail -1 /tmp/load.log)"
 
 workflows:
   spike:
     jobs:
-      - remote-cold
-      - remote-warm:
-          requires: [remote-cold]
-      - machine-cold
-      - machine-warm:
-          requires: [machine-cold]
-      - qemu-remote
-      - multiarch-machine
-      - checks
+      - digest-amd64
+      - digest-arm64
+      - merge-no-daemon:
+          requires: [digest-amd64, digest-arm64]
+      - merge-remote-docker:
+          requires: [digest-amd64, digest-arm64]
+      - windows-build
+      - hadolint-linux
+      - hadolint-macos
+      - sbom
