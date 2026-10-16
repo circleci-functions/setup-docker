@@ -63,6 +63,49 @@ Release assets are checked against the checksums each project publishes.
 default Docker version is verified (its checksums ship with this function); any other
 Docker CLI version is downloaded over HTTPS with a warning.
 
+## Logging in
+
+Use `setup-docker/login` to authenticate with a container registry after installing Docker.
+
+**Docker Hub** (default env names):
+
+```yaml
+      - setup-docker/login
+```
+
+**GitHub Container Registry** with custom env names:
+
+```yaml
+      - setup-docker/login:
+          with:
+            registry: ghcr.io
+            username-env: GHCR_USER
+            password-env: GHCR_TOKEN
+```
+
+**Amazon ECR** after a step that sets up AWS credentials (no username or password needed):
+
+```yaml
+      - setup-docker/login:
+          with:
+            registry: 123456789012.dkr.ecr.us-east-1.amazonaws.com
+```
+
+ECR login uses `docker-credential-ecr-login`, which picks up AWS credentials from the
+environment automatically. No `DOCKER_LOGIN` or `DOCKER_PASSWORD` are read.
+
+### Arguments for `setup-docker/login`
+
+| Argument | Default | Description |
+|------|---------|-------------|
+| `registry` | `docker.io` | Registry to log in to. |
+| `username-env` | `DOCKER_LOGIN` | Name of the environment variable holding the username. |
+| `password-env` | `DOCKER_PASSWORD` | Name of the environment variable holding the password or token. |
+| `retries` | `3` | Times to retry a failed login, with increasing waits. |
+| `credentials-store` | | Store credentials with a credential helper instead of in the Docker config file. |
+| `credentials-helper` | | Credential helper to use (`pass` or `osxkeychain`). Empty picks `pass` on Linux and `osxkeychain` on macOS. |
+| `credentials-helper-version` | | Credential helper version. Empty installs the pinned version. |
+
 ## Remote Docker
 
 With `setup_remote_docker`, this function sets up the Docker client only. The engine
