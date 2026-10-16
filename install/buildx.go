@@ -30,7 +30,7 @@ func (i Installer) Buildx(ctx context.Context, p Platform, want string) (Result,
 		return Result{}, err
 	}
 
-	dest := filepath.Join(i.PluginDir, "docker-buildx")
+	dest := filepath.Join(i.PluginDir, p.exe("docker-buildx"))
 	err = i.fetchVerified(ctx, base+asset, sum, func(f string) error {
 		return copyExecutable(f, dest)
 	})

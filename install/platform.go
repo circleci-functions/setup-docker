@@ -16,8 +16,8 @@ func Current() Platform {
 }
 
 var (
-	goOS      = map[string]string{"linux": "linux", "darwin": "darwin"}
-	dockerOS  = map[string]string{"linux": "linux", "darwin": "mac"}
+	goOS      = map[string]string{"linux": "linux", "darwin": "darwin", "windows": "windows"}
+	dockerOS  = map[string]string{"linux": "linux", "darwin": "mac", "windows": "win"}
 	goArch    = map[string]string{"amd64": "amd64", "arm64": "arm64"}
 	unameArch = map[string]string{"amd64": "x86_64", "arm64": "aarch64"}
 	gossArch  = map[string]string{"amd64": "x86_64", "arm64": "arm64"}
@@ -35,9 +35,19 @@ func (p Platform) pick(osNames, archNames map[string]string) (string, string, er
 	return goos, arch, nil
 }
 
+func (p Platform) exe(name string) string {
+	if p.OS == "windows" {
+		return name + ".exe"
+	}
+	return name
+}
+
 // dockerIndexPath returns the path component under DockerURL for this platform,
-// e.g. "linux/static/stable/x86_64/".
+// e.g. "linux/static/stable/x86_64/". Docker publishes no Windows arm64 build.
 func (p Platform) dockerIndexPath() (string, error) {
+	if p.OS == "windows" && p.Arch == "arm64" {
+		return "", fmt.Errorf("unsupported platform windows/arm64")
+	}
 	goos, arch, err := p.pick(dockerOS, unameArch)
 	if err != nil {
 		return "", err
@@ -45,13 +55,17 @@ func (p Platform) dockerIndexPath() (string, error) {
 	return fmt.Sprintf("%s/static/stable/%s/", goos, arch), nil
 }
 
-// dockerTarballPath returns the full path component for a versioned Docker tarball.
+// dockerTarballPath returns the full path component for a versioned Docker archive.
 func (p Platform) dockerTarballPath(version string) (string, error) {
 	idx, err := p.dockerIndexPath()
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%sdocker-%s.tgz", idx, strings.TrimPrefix(version, "v")), nil
+	ext := ".tgz"
+	if p.OS == "windows" {
+		ext = ".zip"
+	}
+	return fmt.Sprintf("%sdocker-%s%s", idx, strings.TrimPrefix(version, "v"), ext), nil
 }
 
 func (p Platform) buildxAsset(version string) (string, error) {
@@ -59,7 +73,7 @@ func (p Platform) buildxAsset(version string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("buildx-%s.%s-%s", version, goos, arch), nil
+	return p.exe(fmt.Sprintf("buildx-%s.%s-%s", version, goos, arch)), nil
 }
 
 func (p Platform) composeAsset() (string, error) {
@@ -67,10 +81,13 @@ func (p Platform) composeAsset() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("docker-compose-%s-%s", goos, arch), nil
+	return p.exe(fmt.Sprintf("docker-compose-%s-%s", goos, arch)), nil
 }
 
 func (p Platform) dockerizeAsset(version, alpineReleasePath string) (string, error) {
+	if p.OS == "windows" {
+		return "", fmt.Errorf("dockerize has no Windows build")
+	}
 	goos, arch, err := p.pick(goOS, goArch)
 	if err != nil {
 		return "", err
@@ -84,6 +101,9 @@ func (p Platform) dockerizeAsset(version, alpineReleasePath string) (string, err
 }
 
 func (p Platform) gossAsset(version string) (asset, sums string, err error) {
+	if p.OS == "windows" {
+		return "", "", fmt.Errorf("goss is not supported on Windows")
+	}
 	goos, arch, err := p.pick(goOS, gossArch)
 	if err != nil {
 		return "", "", err

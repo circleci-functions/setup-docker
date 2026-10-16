@@ -20,7 +20,7 @@ func (i Installer) Compose(ctx context.Context, p Platform, want string) (Result
 	}
 
 	if keep {
-		dir, linkErr := i.linkExistingCompose(ctx, v)
+		dir, linkErr := i.linkExistingCompose(ctx, v, p)
 		if linkErr != nil {
 			return Result{}, linkErr
 		}
@@ -37,7 +37,7 @@ func (i Installer) Compose(ctx context.Context, p Platform, want string) (Result
 		return Result{}, err
 	}
 
-	dest := filepath.Join(i.PluginDir, "docker-compose")
+	dest := filepath.Join(i.PluginDir, p.exe("docker-compose"))
 	err = i.fetchVerified(ctx, base+asset, sum, func(f string) error {
 		return copyExecutable(f, dest)
 	})
@@ -53,9 +53,9 @@ func (i Installer) Compose(ctx context.Context, p Platform, want string) (Result
 }
 
 // linkExistingCompose searches PluginDir then SystemPluginDirs for docker-compose and links it.
-func (i Installer) linkExistingCompose(ctx context.Context, v string) (string, error) {
+func (i Installer) linkExistingCompose(ctx context.Context, v string, p Platform) (string, error) {
 	for _, d := range append([]string{i.PluginDir}, i.SystemPluginDirs...) {
-		if _, err := os.Stat(filepath.Join(d, "docker-compose")); err == nil {
+		if _, err := os.Stat(filepath.Join(d, p.exe("docker-compose"))); err == nil {
 			return i.link(ctx, d, v, "docker-compose")
 		}
 	}

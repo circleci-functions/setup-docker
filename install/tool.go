@@ -3,7 +3,6 @@ package install
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 
 	"github.com/circleci-functions/toolkit/pathlink"
@@ -48,8 +47,9 @@ func (i Installer) link(ctx context.Context, fromDir, version string, names ...s
 	return res.Dir, err
 }
 
-func reportsVersion(ctx context.Context, bin, version string) error {
-	out, err := exec.CommandContext(ctx, bin, "--version").CombinedOutput()
+func reportsVersion(_ context.Context, bin, version string) error {
+	// pathlink.Command routes .bat shims through cmd on Windows.
+	out, err := pathlink.Command(bin, "--version").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("could not report its version: %w", err)
 	}

@@ -2,6 +2,7 @@ package install
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -143,6 +144,13 @@ func verifySHA256(fpath, want string) error {
 }
 
 func extractFile(archive, entry, dest string) error {
+	if strings.HasSuffix(archive, ".zip") {
+		return extractFileFromZip(archive, entry, dest)
+	}
+	return extractFileFromTarGz(archive, entry, dest)
+}
+
+func extractFileFromTarGz(archive, entry, dest string) error {
 	f, err := os.Open(archive) //nolint:gosec // archive is a path this process built under a temp dir
 	if err != nil {
 		return err
@@ -169,6 +177,29 @@ func extractFile(archive, entry, dest string) error {
 		}
 		if path.Clean(hdr.Name) == entry {
 			return writeExecutable(tr, dest)
+		}
+	}
+	return fmt.Errorf("entry %q not found in %s", entry, archive)
+}
+
+func extractFileFromZip(archive, entry, dest string) error {
+	zr, err := zip.OpenReader(archive) //nolint:gosec // archive is a path this process built under a temp dir
+	if err != nil {
+		return err
+	}
+	defer zr.Close()
+
+	for _, f := range zr.File {
+		if path.Clean(f.Name) == entry {
+			rc, err := f.Open()
+			if err != nil {
+				return fmt.Errorf("open zip entry %s: %w", f.Name, err)
+			}
+			writeErr := writeExecutable(rc, dest)
+			if cerr := rc.Close(); cerr != nil && writeErr == nil {
+				writeErr = cerr
+			}
+			return writeErr
 		}
 	}
 	return fmt.Errorf("entry %q not found in %s", entry, archive)

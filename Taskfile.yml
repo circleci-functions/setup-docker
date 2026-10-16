@@ -63,9 +63,10 @@ tasks:
     cmds:
       - |
         set -eu
-        for platform in linux/amd64 linux/arm64 darwin/arm64; do
+        for platform in linux/amd64 linux/arm64 darwin/arm64 windows/amd64; do
           os="${platform%/*}"; arch="${platform#*/}"
-          out="dist/acceptance/$os/$arch/acceptance"
+          ext=""; [ "$os" = "windows" ] && ext=".exe"
+          out="dist/acceptance/$os/$arch/acceptance${ext}"
           CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go test -c -tags acceptance -o "$out" ./acceptance
           echo "built $out"
         done
@@ -75,14 +76,15 @@ tasks:
     cmds:
       - |
         set -eu
-        for platform in linux/amd64 linux/arm64 darwin/arm64; do
+        for platform in linux/amd64 linux/arm64 darwin/arm64 windows/amd64; do
           os="${platform%/*}"; arch="${platform#*/}"
+          ext=""; [ "$os" = "windows" ] && ext=".exe"
           for tool in cmd/test2json gotest.tools/gotestsum; do
             name="${tool##*/}"
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
-              go build -o "dist/tools/$os/$arch/$name" "$tool"
+              go build -o "dist/tools/$os/$arch/${name}${ext}" "$tool"
           done
-          echo "built dist/tools/$os/$arch/{test2json,gotestsum}"
+          echo "built dist/tools/$os/$arch/{test2json,gotestsum}${ext}"
         done
 
   ci:
@@ -108,9 +110,12 @@ tasks:
       - |
         set -eu
         ver="{{.VERSION}}"
-        for combo in linux/x86_64 linux/aarch64 mac/x86_64 mac/aarch64; do
+        for combo in linux/x86_64 linux/aarch64 mac/x86_64 mac/aarch64 win/x86_64; do
           os="${combo%/*}"; arch="${combo#*/}"
-          url="https://download.docker.com/${os}/static/stable/${arch}/docker-${ver}.tgz"
+          case "$os" in
+            win) url="https://download.docker.com/${os}/static/stable/${arch}/docker-${ver}.zip" ;;
+            *)   url="https://download.docker.com/${os}/static/stable/${arch}/docker-${ver}.tgz" ;;
+          esac
           sha=$(curl -fsSL "$url" | sha256sum | awk '{print $1}')
           case "$arch" in
             x86_64)  goarch="amd64" ;;
@@ -118,6 +123,7 @@ tasks:
           esac
           case "$os" in
             mac) goos="darwin" ;;
+            win) goos="windows" ;;
             *)   goos="$os" ;;
           esac
           echo "\"${goos}/${goarch}\": \"${sha}\","

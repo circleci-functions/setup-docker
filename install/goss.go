@@ -49,6 +49,9 @@ func (i Installer) Goss(ctx context.Context, p Platform, want string) (Result, e
 }
 
 func (p Platform) gossOldAsset() (string, error) {
+	if p.OS == "windows" {
+		return "", fmt.Errorf("goss is not supported on Windows")
+	}
 	goos, arch, err := p.pick(goOS, goArch)
 	if err != nil {
 		return "", err

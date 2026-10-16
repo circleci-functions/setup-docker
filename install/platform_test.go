@@ -139,3 +139,79 @@ func TestUnsupportedPlatform(t *testing.T) {
 	_, err := p.dockerIndexPath()
 	assert.Check(t, cmp.ErrorContains(err, "unsupported platform freebsd/amd64"))
 }
+
+func TestWindowsPlatformAssets(t *testing.T) {
+	const ver = "v29.9.1"
+
+	cases := []struct {
+		name    string
+		p       Platform
+		idx     string
+		tarball string
+		buildx  string
+		compose string
+		idxErr  string
+	}{
+		{
+			name:    "windows/amd64",
+			p:       Platform{"windows", "amd64"},
+			idx:     "win/static/stable/x86_64/",
+			tarball: "win/static/stable/x86_64/docker-29.9.1.zip",
+			buildx:  "buildx-v29.9.1.windows-amd64.exe",
+			compose: "docker-compose-windows-x86_64.exe",
+		},
+		{
+			name:    "windows/arm64 docker unsupported",
+			p:       Platform{"windows", "arm64"},
+			idxErr:  "unsupported platform windows/arm64",
+			buildx:  "buildx-v29.9.1.windows-arm64.exe",
+			compose: "docker-compose-windows-aarch64.exe",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			idx, err := tc.p.dockerIndexPath()
+			if tc.idxErr != "" {
+				assert.Check(t, cmp.ErrorContains(err, tc.idxErr))
+			} else {
+				assert.NilError(t, err)
+				assert.Check(t, cmp.Equal(idx, tc.idx))
+				tarball, tarErr := tc.p.dockerTarballPath(ver)
+				assert.NilError(t, tarErr)
+				assert.Check(t, cmp.Equal(tarball, tc.tarball))
+			}
+
+			buildx, err := tc.p.buildxAsset(ver)
+			assert.NilError(t, err)
+			assert.Check(t, cmp.Equal(buildx, tc.buildx))
+
+			compose, err := tc.p.composeAsset()
+			assert.NilError(t, err)
+			assert.Check(t, cmp.Equal(compose, tc.compose))
+
+			_, dockerizeErr := tc.p.dockerizeAsset(ver, "/no/such/path")
+			assert.Check(t, cmp.ErrorContains(dockerizeErr, "dockerize has no Windows build"))
+
+			_, _, gossErr := tc.p.gossAsset(ver)
+			assert.Check(t, cmp.ErrorContains(gossErr, "goss is not supported on Windows"))
+		})
+	}
+}
+
+func TestExeHelper(t *testing.T) {
+	cases := []struct {
+		p    Platform
+		name string
+		want string
+	}{
+		{Platform{"linux", "amd64"}, "docker", "docker"},
+		{Platform{"darwin", "arm64"}, "docker", "docker"},
+		{Platform{"windows", "amd64"}, "docker", "docker.exe"},
+		{Platform{"windows", "amd64"}, "docker-buildx", "docker-buildx.exe"},
+	}
+	for _, tc := range cases {
+		got := tc.p.exe(tc.name)
+		assert.Check(t, cmp.Equal(got, tc.want))
+	}
+}

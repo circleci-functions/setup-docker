@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -51,6 +52,15 @@ func TestAcceptance_LinksOntoTheRealPath(t *testing.T) {
 		assert.Assert(t, strings.Contains(got, "2.29.7"),
 			"expected 2.29.7 in docker compose version: %s", got)
 	})
+
+	if runtime.GOOS == "windows" {
+		t.Run("docker-compose resolves in PowerShell", func(t *testing.T) {
+			got, stepErr := sdktest.LaterStep(t, "powershell.exe", "-Command", "docker-compose version")
+			assert.NilError(t, stepErr, "PowerShell could not resolve docker-compose: %s", got)
+			assert.Assert(t, strings.Contains(got, "2.29.7"),
+				"expected 2.29.7 in docker-compose version: %s", got)
+		})
+	}
 
 	t.Run("NothingIsExportedToAShell", func(t *testing.T) {
 		_, statErr := os.Stat(bashEnv) //nolint:gosec // path this test chose

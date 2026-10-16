@@ -2,6 +2,7 @@ package install
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -244,6 +245,47 @@ func TestExtractFile(t *testing.T) {
 			"other/file": []byte("x"),
 		})
 		err := extractFile(archive, "docker/docker", filepath.Join(t.TempDir(), "docker"))
+		assert.Check(t, cmp.ErrorContains(err, "not found"))
+	})
+}
+
+func makeZip(t *testing.T, entries map[string][]byte) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "archive.zip")
+	f, err := os.Create(p)
+	assert.NilError(t, err)
+	defer f.Close()
+
+	w := zip.NewWriter(f)
+	for name, data := range entries {
+		fw, createErr := w.Create(name)
+		assert.NilError(t, createErr)
+		_, err = fw.Write(data)
+		assert.NilError(t, err)
+	}
+	assert.NilError(t, w.Close())
+	return p
+}
+
+func TestExtractFileFromZip(t *testing.T) {
+	content := []byte("binary content for zip")
+
+	t.Run("entry found", func(t *testing.T) {
+		archive := makeZip(t, map[string][]byte{
+			"docker/docker.exe": content,
+		})
+		dest := filepath.Join(t.TempDir(), "docker.exe")
+		assert.NilError(t, extractFile(archive, "docker/docker.exe", dest))
+		got, err := os.ReadFile(dest)
+		assert.NilError(t, err)
+		assert.Check(t, cmp.Equal(string(got), string(content)))
+	})
+
+	t.Run("missing entry", func(t *testing.T) {
+		archive := makeZip(t, map[string][]byte{
+			"other/file.exe": []byte("x"),
+		})
+		err := extractFile(archive, "docker/docker.exe", filepath.Join(t.TempDir(), "docker.exe"))
 		assert.Check(t, cmp.ErrorContains(err, "not found"))
 	})
 }

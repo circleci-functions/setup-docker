@@ -88,8 +88,11 @@ Passed under `with:`.
 
 ## Platform support
 
-Linux and macOS, on amd64 and arm64. On Alpine, the Alpine build of dockerize is used
-automatically. Windows is not supported.
+Linux and macOS on amd64 and arm64. Windows amd64 is supported for the Docker CLI,
+buildx, and compose. Docker publishes no Windows arm64 CLI, so only buildx and compose
+are available on windows/arm64. On Alpine, the Alpine build of dockerize is used
+automatically. dockerize and goss have no Windows builds and return an error if requested
+on Windows.
 
 On macOS there is no Docker daemon; the CLI and plugins install and work, but running
 containers requires a remote daemon.

@@ -25,7 +25,7 @@ func (i Installer) Docker(ctx context.Context, p Platform, want string) (Result,
 		return Result{Tool: "docker", Version: v, Kept: true}, nil
 	}
 
-	bin := filepath.Join(i.storeDir("docker", v), "docker")
+	bin := filepath.Join(i.storeDir("docker", v), p.exe("docker"))
 	sum := dockerSHA256[strings.TrimPrefix(v, "v")][p.OS+"/"+p.Arch]
 	unverified := sum == ""
 	if _, err := os.Stat(bin); err != nil {
@@ -34,7 +34,7 @@ func (i Installer) Docker(ctx context.Context, p Platform, want string) (Result,
 			return Result{}, err
 		}
 		err = i.fetchVerified(ctx, i.DockerURL+"/"+tgzURL, sum, func(f string) error {
-			return extractFile(f, "docker/docker", bin)
+			return extractFile(f, "docker/"+p.exe("docker"), bin)
 		})
 		if err != nil {
 			return Result{}, err
