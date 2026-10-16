@@ -75,29 +75,32 @@ func TestLoginPassword_MissingPasswordEnv(t *testing.T) {
 	assert.Check(t, cmp.ErrorContains(err, "is not set"))
 }
 
-func TestLoginPassword_ErrorNeverContainsPassword(t *testing.T) {
+// TestDockerLoginRetry_ZeroRetries: retries=0 must still make exactly 1 attempt.
+func TestDockerLoginRetry_ZeroRetries(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake script not supported on Windows")
 	}
 	withDockerConfig(t)
 	ins := install.New("")
-	secret := "super-secret-value-xyz"
-	t.Setenv("SD_TEST_USER_NCP", "user")
-	t.Setenv("SD_TEST_PASS_NCP", secret)
-	fakeDockerDir(t, 1, "unauthorized: incorrect username or password")
+	t.Setenv("SD_TEST_ZERO_USER", "u")
+	t.Setenv("SD_TEST_ZERO_PASS", "p")
+
+	countFile := fakeDockerCounter(t, 1, "connection refused")
+
 	cfg := Config{ //nolint:gosec // env var names are not credentials
 		Registry:    "docker.io",
-		UsernameEnv: "SD_TEST_USER_NCP",
-		PasswordEnv: "SD_TEST_PASS_NCP",
-		Retries:     1,
+		UsernameEnv: "SD_TEST_ZERO_USER",
+		PasswordEnv: "SD_TEST_ZERO_PASS",
+		Retries:     0,
 	}
 	err := Login(context.Background(), ins, install.Current(), cfg)
 	assert.Check(t, err != nil)
-	if err != nil {
-		assert.Check(t, !strings.Contains(err.Error(), secret), "error must not contain the password")
-	}
+
+	countData, _ := os.ReadFile(countFile)
+	assert.Check(t, cmp.Equal(strings.TrimSpace(string(countData)), "1"), "retries=0 must make exactly 1 attempt")
 }
 
+// TestDockerLoginRetry_TransientThenSuccess: 2 retries → up to 3 attempts; transient then success takes 2.
 func TestDockerLoginRetry_TransientThenSuccess(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake script not supported on Windows")
@@ -110,15 +113,16 @@ func TestDockerLoginRetry_TransientThenSuccess(t *testing.T) {
 	t.Setenv("SD_TEST_RETRY_USER", "u")
 	t.Setenv("SD_TEST_RETRY_PASS", "p")
 
+	// Fails on attempt 1, succeeds on attempt 2.
 	dir := t.TempDir()
 	countFile := filepath.Join(dir, "count")
 	_ = os.WriteFile(countFile, []byte("0"), 0o600)
 	script := fmt.Sprintf(`#!/bin/sh
-n=$(cat %s 2>/dev/null || echo 0)
+n=$(/bin/cat %s 2>/dev/null || /bin/echo 0)
 n=$((n+1))
-printf "%%s" "$n" > %s
+/bin/echo $n > %s
 if [ "$n" -lt "2" ]; then
-  echo "connection refused" >&2
+  /bin/echo "connection refused" >&2
   exit 1
 fi
 exit 0
@@ -130,7 +134,7 @@ exit 0
 		Registry:    "docker.io",
 		UsernameEnv: "SD_TEST_RETRY_USER",
 		PasswordEnv: "SD_TEST_RETRY_PASS",
-		Retries:     3,
+		Retries:     2,
 	}
 	err := Login(context.Background(), ins, install.Current(), cfg)
 	assert.NilError(t, err)
@@ -139,6 +143,7 @@ exit 0
 	assert.Check(t, cmp.Equal(strings.TrimSpace(string(countData)), "2"), "expected exactly 2 attempts")
 }
 
+// TestDockerLoginRetry_Unauthorized_NoRetry: credential rejection → exactly 1 attempt, error names reason.
 func TestDockerLoginRetry_Unauthorized_NoRetry(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake script not supported on Windows")
@@ -148,17 +153,7 @@ func TestDockerLoginRetry_Unauthorized_NoRetry(t *testing.T) {
 	t.Setenv("SD_TEST_UNAUTH_USER", "u")
 	t.Setenv("SD_TEST_UNAUTH_PASS", "wrong")
 
-	dir := t.TempDir()
-	countFile := filepath.Join(dir, "count")
-	_ = os.WriteFile(countFile, []byte("0"), 0o600)
-	script := fmt.Sprintf(`#!/bin/sh
-n=$(cat %s 2>/dev/null || echo 0)
-printf "%%s" "$((n+1))" > %s
-echo "unauthorized: incorrect username or password" >&2
-exit 1
-`, countFile, countFile)
-	assert.NilError(t, os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0o755))
-	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	countFile := fakeDockerCounter(t, 1, "unauthorized: incorrect username or password")
 
 	cfg := Config{ //nolint:gosec // env var names are not credentials
 		Registry:    "docker.io",
@@ -173,7 +168,8 @@ exit 1
 	assert.Check(t, cmp.Equal(strings.TrimSpace(string(countData)), "1"), "should not retry on unauthorized")
 }
 
-func TestDockerLoginRetry_Exhausted_ErrorNamedRegistry(t *testing.T) {
+// TestDockerLoginRetry_Exhausted: exhausted → error names registry, never password.
+func TestDockerLoginRetry_Exhausted(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake script not supported on Windows")
 	}
@@ -184,7 +180,7 @@ func TestDockerLoginRetry_Exhausted_ErrorNamedRegistry(t *testing.T) {
 	ins := install.New("")
 	t.Setenv("SD_TEST_EXH_USER", "u")
 	t.Setenv("SD_TEST_EXH_PASS", "secretpassword")
-	fakeDockerDir(t, 1, "connection reset by peer")
+	fakeDockerSimple(t, 1, "connection reset by peer")
 
 	cfg := Config{ //nolint:gosec // env var names are not credentials
 		Registry:    "myregistry.example.com",
@@ -197,6 +193,35 @@ func TestDockerLoginRetry_Exhausted_ErrorNamedRegistry(t *testing.T) {
 	if err != nil {
 		assert.Check(t, cmp.Contains(err.Error(), "myregistry.example.com"), "error should name the registry")
 		assert.Check(t, !strings.Contains(err.Error(), "secretpassword"), "error must not contain password")
+	}
+}
+
+// TestDockerLogin_ErrorOutputNeverContainsPassword: docker output is surfaced in the error/stderr
+// but the password must never appear there.
+func TestDockerLogin_ErrorOutputNeverContainsPassword(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake script not supported on Windows")
+	}
+	withDockerConfig(t)
+	ins := install.New("")
+
+	secret := "ultra-secret-xy7z" //nolint:gosec // test string, not a real credential
+	t.Setenv("SD_TEST_NCP_USER", "user")
+	t.Setenv("SD_TEST_NCP_PASS", secret)
+
+	// Fake docker that prints a typical error message (no password) and exits 1.
+	fakeDockerSimple(t, 1, "Error response from daemon: login attempt to https://registry-1.docker.io/v2/ failed with status: 401 Unauthorized")
+
+	cfg := Config{ //nolint:gosec // env var names are not credentials
+		Registry:    "docker.io",
+		UsernameEnv: "SD_TEST_NCP_USER",
+		PasswordEnv: "SD_TEST_NCP_PASS",
+		Retries:     0,
+	}
+	err := Login(context.Background(), ins, install.Current(), cfg)
+	assert.Check(t, err != nil)
+	if err != nil {
+		assert.Check(t, !strings.Contains(err.Error(), secret), "error must not contain password: %s", err)
 	}
 }
 
@@ -239,11 +264,29 @@ func TestLoginECR_ConfigUpdated(t *testing.T) {
 	assert.Assert(t, cmp.Contains(string(data), cfg.Registry))
 }
 
-// fakeDockerDir creates a fake docker binary in a temp dir and prepends it to PATH.
-func fakeDockerDir(t *testing.T, exitCode int, output string) {
+// fakeDockerCounter creates a fake docker that counts calls and always exits with exitCode.
+// Returns the count file path.
+func fakeDockerCounter(t *testing.T, exitCode int, output string) string {
 	t.Helper()
 	dir := t.TempDir()
-	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s' '%s' >&2\nexit %d\n", output, exitCode)
+	countFile := filepath.Join(dir, "count")
+	_ = os.WriteFile(countFile, []byte("0"), 0o600)
+	script := fmt.Sprintf(`#!/bin/sh
+n=$(/bin/cat %s 2>/dev/null || /bin/echo 0)
+/bin/echo $((n+1)) > %s
+/bin/echo '%s' >&2
+exit %d
+`, countFile, countFile, output, exitCode)
+	assert.NilError(t, os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0o755))
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	return countFile
+}
+
+// fakeDockerSimple creates a fake docker that always exits with exitCode and prints output.
+func fakeDockerSimple(t *testing.T, exitCode int, output string) {
+	t.Helper()
+	dir := t.TempDir()
+	script := fmt.Sprintf("#!/bin/sh\n/bin/echo '%s' >&2\nexit %d\n", output, exitCode)
 	assert.NilError(t, os.WriteFile(filepath.Join(dir, "docker"), []byte(script), 0o755))
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 }

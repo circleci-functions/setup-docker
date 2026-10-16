@@ -18,7 +18,7 @@ const ecrLoginBase = "https://amazon-ecr-credential-helper-releases.s3.us-east-2
 
 var ecrRe = regexp.MustCompile(`^\d{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com(\.cn)?$`)
 
-// Config holds all flags for the login command.
+// Config holds flags for the login command.
 type Config struct {
 	Registry                 string
 	UsernameEnv              string
@@ -36,11 +36,6 @@ func Login(ctx context.Context, ins install.Installer, p install.Platform, cfg C
 		return loginECR(ctx, ins, p, cfg)
 	}
 	return loginPassword(ctx, ins, p, cfg)
-}
-
-// IsECR reports whether registry is an ECR endpoint.
-func IsECR(registry string) bool {
-	return ecrRe.MatchString(registry)
 }
 
 func loginECR(ctx context.Context, ins install.Installer, p install.Platform, cfg Config) error {
@@ -113,10 +108,14 @@ func loginPassword(ctx context.Context, ins install.Installer, p install.Platfor
 	return nil
 }
 
+// dockerLoginWithRetry makes up to retries+1 attempts. Waits 1s, 2s, 4s… between
+// attempts. Does not retry on credential rejection.
 func dockerLoginWithRetry(ctx context.Context, registry, username, password string, retries int) error {
-	for attempt := 0; attempt < retries; attempt++ {
-		if attempt > 0 {
-			wait := time.Duration(1<<(attempt-1)) * time.Second
+	maxAttempts := retries + 1
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if attempt > 1 {
+			wait := time.Duration(1<<(attempt-2)) * time.Second
+			fmt.Fprintf(os.Stderr, "setup-docker: retrying in %ds\n", int(wait.Seconds()))
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -124,15 +123,29 @@ func dockerLoginWithRetry(ctx context.Context, registry, username, password stri
 			}
 		}
 		out, err := runDockerLogin(ctx, registry, username, password)
+		lastLine := lastNonEmpty(string(out))
 		if err == nil {
 			return nil
 		}
+		fmt.Fprintf(os.Stderr, "setup-docker: docker login to %s failed (attempt %d of %d): %s\n",
+			registry, attempt, maxAttempts, lastLine)
 		lower := strings.ToLower(string(out))
 		if strings.Contains(lower, "unauthorized") || strings.Contains(lower, "incorrect username or password") {
-			return fmt.Errorf("docker login to %s: credentials rejected", registry)
+			return fmt.Errorf("docker login to %s: credentials rejected: %s", registry, lastLine)
 		}
 	}
-	return fmt.Errorf("docker login to %s failed after %d attempt(s)", registry, retries)
+	return fmt.Errorf("docker login to %s failed after %d attempt(s)", registry, maxAttempts)
+}
+
+// lastNonEmpty returns the last non-blank line of s.
+func lastNonEmpty(s string) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if t := strings.TrimSpace(lines[i]); t != "" {
+			return t
+		}
+	}
+	return ""
 }
 
 func runDockerLogin(ctx context.Context, registry, username, password string) ([]byte, error) {

@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const passKeyEmail = "setup-docker@circleci.com" //nolint:gosec // an email address, not a credential
+const passKeyEmail = "setup-docker@localhost" //nolint:gosec // an email address, not a credential
 
 const gpgKeyTemplate = `Key-Type: RSA
 Key-Length: 2048
@@ -29,11 +29,11 @@ func setupPass(ctx context.Context) error {
 			if err := runCmd(ctx, "sudo", "apt-get", "update", "--yes"); err != nil {
 				return fmt.Errorf("apt-get update: %w", err)
 			}
-			if err := runCmd(ctx, "sudo", "apt-get", "install", "--yes", "gnupg2", "pass"); err != nil {
-				return fmt.Errorf("install gnupg2 pass: %w", err)
+			if err := runCmd(ctx, "sudo", "apt-get", "install", "--yes", "gnupg", "pass"); err != nil {
+				return fmt.Errorf("install gnupg pass: %w", err)
 			}
 		} else {
-			return fmt.Errorf("pass is not installed and sudo is not available; install gnupg2 and pass manually")
+			return fmt.Errorf("pass is not installed and sudo is not available; install gnupg and pass manually")
 		}
 	}
 
@@ -47,11 +47,11 @@ func setupPass(ctx context.Context) error {
 	if err := os.WriteFile(tmplPath, []byte(gpgKeyTemplate), 0o600); err != nil {
 		return err
 	}
-	if err := runCmd(ctx, "gpg2", "--batch", "--gen-key", tmplPath); err != nil {
+	if err := runCmd(ctx, "gpg", "--batch", "--gen-key", tmplPath); err != nil {
 		return fmt.Errorf("generate gpg key: %w", err)
 	}
 
-	out, err := exec.CommandContext(ctx, "gpg2", "--list-keys", "--with-fingerprint", "--with-colons", passKeyEmail).Output()
+	out, err := exec.CommandContext(ctx, "gpg", "--list-keys", "--with-fingerprint", "--with-colons", passKeyEmail).Output()
 	if err != nil {
 		return fmt.Errorf("read gpg key fingerprint: %w", err)
 	}

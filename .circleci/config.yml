@@ -214,6 +214,26 @@ jobs:
               ./dist/setup-docker/linux/amd64/setup-docker login --registry localhost:5000 --retries 1 && exit 1 || true
             # output must not contain the wrong password
             echo "$out" | grep -qv "wrongpassword"
+      - run:
+          name: Login with credentials-store pass
+          command: |
+            rm -f ~/.docker/config.json
+            REG_USER=testuser REG_PASS=testpass \
+              ./dist/setup-docker/linux/amd64/setup-docker login \
+                --registry localhost:5000 \
+                --username-env REG_USER \
+                --password-env REG_PASS \
+                --credentials-store
+      - run:
+          name: Assert credentials-store config and push
+          command: |
+            store=$(jq -r .credsStore ~/.docker/config.json)
+            echo "credsStore: $store"
+            [ "$store" = "pass" ]
+            inline=$(jq -r '.auths["localhost:5000"].auth // empty' ~/.docker/config.json)
+            echo "inline auth: '$inline'"
+            [ -z "$inline" ]
+            docker push localhost:5000/busybox
 
 workflows:
   test-publish:
