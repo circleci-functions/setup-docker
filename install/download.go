@@ -211,6 +211,43 @@ func (i Installer) latestRelease(ctx context.Context, repo string) (string, erro
 	return tag, nil
 }
 
+// fetchVerified downloads url to a temp file, verifies its SHA-256 against sum
+// (skipped when sum is empty), calls use with the file path, then removes the temp dir.
+func (i Installer) fetchVerified(ctx context.Context, url, sum string, use func(string) error) error {
+	tmp, err := os.MkdirTemp("", "install-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	dest := filepath.Join(tmp, path.Base(url))
+	if err := i.fetch(ctx, url, dest); err != nil {
+		return err
+	}
+	if sum != "" {
+		if err := verifySHA256(dest, sum); err != nil {
+			return err
+		}
+	}
+	return use(dest)
+}
+
+func (i Installer) releaseChecksum(ctx context.Context, sumsURL, name string) (string, error) {
+	data, err := i.fetchBytes(ctx, sumsURL)
+	if err != nil {
+		return "", err
+	}
+	return checksumFor(data, name)
+}
+
+func copyExecutable(src, dest string) error {
+	f, err := os.Open(src) //nolint:gosec
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return writeExecutable(f, dest)
+}
+
 type notFoundError struct{ url string }
 
 func (e *notFoundError) Error() string { return fmt.Sprintf("GET %s: 404 Not Found", e.url) }

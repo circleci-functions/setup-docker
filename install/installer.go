@@ -8,12 +8,13 @@ import (
 )
 
 type Installer struct {
-	GitHubURL  string
-	DockerURL  string
-	InstallDir string
-	PluginDir  string
-	CacheDir   string
-	HTTP       *http.Client
+	GitHubURL        string
+	DockerURL        string
+	InstallDir       string
+	PluginDir        string
+	CacheDir         string
+	HTTP             *http.Client
+	SystemPluginDirs []string
 }
 
 func New(linkDir string) Installer {
@@ -25,6 +26,12 @@ func New(linkDir string) Installer {
 		PluginDir:  pluginDir,
 		CacheDir:   defaultCacheDir(),
 		HTTP:       &http.Client{Timeout: 10 * time.Minute},
+		SystemPluginDirs: []string{
+			"/usr/local/lib/docker/cli-plugins",
+			"/usr/local/libexec/docker/cli-plugins",
+			"/usr/lib/docker/cli-plugins",
+			"/usr/libexec/docker/cli-plugins",
+		},
 	}
 }
 

@@ -99,3 +99,26 @@ tasks:
       vars: [VERSION]
     cmds:
       - go tool release --name setup-docker --version "{{.VERSION}}"
+
+  docker-checksums:
+    desc: Print dockerSHA256 map entries for a given Docker VERSION
+    requires:
+      vars: [VERSION]
+    cmds:
+      - |
+        set -eu
+        ver="{{.VERSION}}"
+        for combo in linux/x86_64 linux/aarch64 mac/x86_64 mac/aarch64; do
+          os="${combo%/*}"; arch="${combo#*/}"
+          url="https://download.docker.com/${os}/static/stable/${arch}/docker-${ver}.tgz"
+          sha=$(curl -fsSL "$url" | sha256sum | awk '{print $1}')
+          case "$arch" in
+            x86_64)  goarch="amd64" ;;
+            aarch64) goarch="arm64" ;;
+          esac
+          case "$os" in
+            mac) goos="darwin" ;;
+            *)   goos="$os" ;;
+          esac
+          echo "\"${goos}/${goarch}\": \"${sha}\","
+        done
