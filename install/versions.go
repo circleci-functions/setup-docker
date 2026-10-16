@@ -1,11 +1,11 @@
 package install
 
 const (
-	defaultDockerVersion    = "29.9.1"  // renovate: datasource=github-tags depName=docker/cli extractVersion=^v(?<version>.+)$
-	defaultBuildxVersion    = "v0.38.0" // renovate: datasource=github-releases depName=docker/buildx
-	defaultComposeVersion   = "v5.6.0"  // renovate: datasource=github-releases depName=docker/compose
-	defaultDockerizeVersion = "v0.15.2" // renovate: datasource=github-releases depName=jwilder/dockerize
-	defaultGossVersion      = "v0.4.10" // renovate: datasource=github-releases depName=goss-org/goss
+	DefaultDockerVersion    = "29.9.1"  // renovate: datasource=github-tags depName=docker/cli extractVersion=^v(?<version>.+)$
+	DefaultBuildxVersion    = "v0.38.0" // renovate: datasource=github-releases depName=docker/buildx
+	DefaultComposeVersion   = "v5.6.0"  // renovate: datasource=github-releases depName=docker/compose
+	DefaultDockerizeVersion = "v0.15.2" // renovate: datasource=github-releases depName=jwilder/dockerize
+	DefaultGossVersion      = "v0.4.10" // renovate: datasource=github-releases depName=goss-org/goss
 )
 
 // download.docker.com publishes no checksums, so the default version's are kept here.

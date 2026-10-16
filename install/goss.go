@@ -16,7 +16,7 @@ func (i Installer) Goss(ctx context.Context, p Platform, want string) (Result, e
 		}
 	}
 
-	version, keep, err := chooseVersion(ctx, want, defaultGossVersion, have, func(ctx context.Context) (string, error) {
+	version, keep, err := chooseVersion(ctx, want, DefaultGossVersion, have, func(ctx context.Context) (string, error) {
 		return i.latestRelease(ctx, "goss-org/goss")
 	})
 	if err != nil {

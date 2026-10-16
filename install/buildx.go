@@ -10,7 +10,7 @@ import (
 
 func (i Installer) Buildx(ctx context.Context, p Platform, want string) (Result, error) {
 	have, _ := installedVersion(ctx, "docker", "buildx", "version")
-	v, keep, err := chooseVersion(ctx, want, defaultBuildxVersion, have, func(ctx context.Context) (string, error) {
+	v, keep, err := chooseVersion(ctx, want, DefaultBuildxVersion, have, func(ctx context.Context) (string, error) {
 		return i.latestRelease(ctx, "docker/buildx")
 	})
 	if err != nil {
@@ -25,7 +25,7 @@ func (i Installer) Buildx(ctx context.Context, p Platform, want string) (Result,
 		return Result{}, err
 	}
 	base := i.GitHubURL + "/docker/buildx/releases/download/" + v + "/"
-	sum, err := i.releaseChecksum(ctx, base+"checksums.txt", asset)
+	sum, err := i.buildxChecksum(ctx, base, asset)
 	if err != nil {
 		return Result{}, err
 	}
@@ -45,6 +45,20 @@ func (i Installer) Buildx(ctx context.Context, p Platform, want string) (Result,
 	}
 
 	return Result{Tool: "buildx", Version: v, Dir: i.PluginDir}, nil
+}
+
+// buildxChecksum looks up asset in checksums.txt; recent macOS/Windows releases
+// moved signed binaries to checksums-signed.txt, so fall back to that file.
+// Recent releases list their signed macOS and Windows binaries in checksums-signed.txt instead.
+func (i Installer) buildxChecksum(ctx context.Context, base, asset string) (string, error) {
+	sum, err := i.releaseChecksum(ctx, base+"checksums.txt", asset)
+	if err == nil {
+		return sum, nil
+	}
+	if !isChecksumNotFound(err) {
+		return "", err
+	}
+	return i.releaseChecksum(ctx, base+"checksums-signed.txt", asset)
 }
 
 func (i Installer) verifyBuildxOnPath(ctx context.Context, v string) error {

@@ -12,7 +12,7 @@ func (i Installer) Compose(ctx context.Context, p Platform, want string) (Result
 		have, _ = installedVersion(ctx, "docker-compose", "version")
 	}
 
-	v, keep, err := chooseVersion(ctx, want, defaultComposeVersion, have, func(ctx context.Context) (string, error) {
+	v, keep, err := chooseVersion(ctx, want, DefaultComposeVersion, have, func(ctx context.Context) (string, error) {
 		return i.latestRelease(ctx, "docker/compose")
 	})
 	if err != nil {

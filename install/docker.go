@@ -15,7 +15,7 @@ var dockerListRe = regexp.MustCompile(`docker-(\d+\.\d+\.\d+)\.tgz`)
 
 func (i Installer) Docker(ctx context.Context, p Platform, want string) (Result, error) {
 	have, _ := installedVersion(ctx, "docker", "--version")
-	v, keep, err := chooseVersion(ctx, want, defaultDockerVersion, have, func(ctx context.Context) (string, error) {
+	v, keep, err := chooseVersion(ctx, want, DefaultDockerVersion, have, func(ctx context.Context) (string, error) {
 		return i.latestDocker(ctx, p)
 	})
 	if err != nil {

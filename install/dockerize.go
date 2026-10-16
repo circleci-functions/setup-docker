@@ -8,7 +8,7 @@ import (
 
 func (i Installer) Dockerize(ctx context.Context, p Platform, want string) (Result, error) {
 	have, _ := installedVersion(ctx, "dockerize", "--version")
-	version, keep, err := chooseVersion(ctx, want, defaultDockerizeVersion, have, func(ctx context.Context) (string, error) {
+	version, keep, err := chooseVersion(ctx, want, DefaultDockerizeVersion, have, func(ctx context.Context) (string, error) {
 		return i.latestRelease(ctx, "jwilder/dockerize")
 	})
 	if err != nil {

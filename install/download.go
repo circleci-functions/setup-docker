@@ -111,7 +111,18 @@ func checksumFor(sums []byte, name string) (string, error) {
 			return hash, nil
 		}
 	}
-	return "", fmt.Errorf("checksum not found for %q", name)
+	return "", &checksumMissingError{name: name}
+}
+
+type checksumMissingError struct{ name string }
+
+func (e *checksumMissingError) Error() string {
+	return fmt.Sprintf("checksum not found for %q", e.name)
+}
+
+func isChecksumNotFound(err error) bool {
+	var cme *checksumMissingError
+	return errors.As(err, &cme)
 }
 
 func verifySHA256(fpath, want string) error {

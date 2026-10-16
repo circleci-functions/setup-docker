@@ -114,6 +114,87 @@ func TestBuildxChecksumMismatch(t *testing.T) {
 	assert.Check(t, cmp.Equal(os.IsNotExist(statErr), true))
 }
 
+// TestBuildxChecksumSignedFallback covers macOS/Windows releases where the
+// asset is only in checksums-signed.txt, not checksums.txt.
+func TestBuildxChecksumSignedFallback(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("script-based test not supported on Windows")
+	}
+
+	const version = "v0.38.0"
+	p := Platform{"darwin", "arm64"}
+	asset, err := p.buildxAsset(version)
+	assert.NilError(t, err)
+
+	binary := fakeBuildxBinary(version)
+	h := sha256.Sum256(binary)
+	checksum := hex.EncodeToString(h[:])
+	signedSums := fmt.Sprintf("%s *%s\n", checksum, asset)
+
+	// No docker on PATH so verifyBuildxOnPath is skipped.
+	t.Setenv("PATH", t.TempDir())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		base := "/docker/buildx/releases/download/" + version + "/"
+		switch r.URL.Path {
+		case base + "checksums.txt":
+			// Only has linux entries — darwin asset absent.
+			fmt.Fprintf(w, "abc123  buildx-%s.linux-amd64\n", version)
+		case base + "checksums-signed.txt":
+			fmt.Fprint(w, signedSums)
+		case base + asset:
+			_, _ = w.Write(binary)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	ins := testInstaller(srv)
+	ins.InstallDir = t.TempDir()
+	ins.PluginDir = t.TempDir()
+
+	ctx := context.Background()
+	res, err := ins.Buildx(ctx, p, version)
+	assert.NilError(t, err)
+	assert.Check(t, cmp.Equal(res.Version, version))
+}
+
+// TestBuildxChecksumInNeither covers the case where the asset is in neither file.
+func TestBuildxChecksumInNeither(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("script-based test not supported on Windows")
+	}
+
+	const version = "v0.38.0"
+	p := Platform{"darwin", "arm64"}
+	asset, err := p.buildxAsset(version)
+	assert.NilError(t, err)
+
+	t.Setenv("PATH", t.TempDir())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		base := "/docker/buildx/releases/download/" + version + "/"
+		switch r.URL.Path {
+		case base + "checksums.txt", base + "checksums-signed.txt":
+			fmt.Fprintf(w, "abc123  buildx-%s.linux-amd64\n", version)
+		case base + asset:
+			_, _ = w.Write(fakeBuildxBinary(version))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	ins := testInstaller(srv)
+	ins.InstallDir = t.TempDir()
+	ins.PluginDir = t.TempDir()
+
+	ctx := context.Background()
+	_, err = ins.Buildx(ctx, p, version)
+	assert.Check(t, cmp.ErrorContains(err, asset))
+}
+
 func TestBuildxKeepExisting(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("script-based test not supported on Windows")

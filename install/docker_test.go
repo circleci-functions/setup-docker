@@ -172,10 +172,10 @@ func TestDockerChecksumMismatch(t *testing.T) {
 		t.Skip("script-based test not supported on Windows")
 	}
 
-	tgzData := makeDockerTarGz(t, defaultDockerVersion)
+	tgzData := makeDockerTarGz(t, DefaultDockerVersion)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/linux/static/stable/x86_64/docker-"+defaultDockerVersion+".tgz" {
+		if r.URL.Path == "/linux/static/stable/x86_64/docker-"+DefaultDockerVersion+".tgz" {
 			_, _ = w.Write(tgzData)
 		} else {
 			w.WriteHeader(http.StatusNotFound)
@@ -188,7 +188,7 @@ func TestDockerChecksumMismatch(t *testing.T) {
 	ins.CacheDir = t.TempDir()
 
 	ctx := context.Background()
-	_, err := ins.Docker(ctx, Platform{"linux", "amd64"}, defaultDockerVersion)
+	_, err := ins.Docker(ctx, Platform{"linux", "amd64"}, DefaultDockerVersion)
 	assert.Check(t, cmp.ErrorContains(err, "SHA-256 mismatch"))
 }
 
