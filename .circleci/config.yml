@@ -35,6 +35,10 @@ commands:
         type: string
         default: ""
         description: Executable suffix for the platform.
+      run:
+        type: string
+        default: TestAcceptance_LinksOntoTheRealPath
+        description: Test name to pass to -test.run.
     steps:
       - run:
           name: Run smoke test
@@ -47,7 +51,7 @@ commands:
               ./dist/tools/<< parameters.platform >>/test2json<< parameters.ext >> \
                 -p acceptance \
                 ./dist/acceptance/<< parameters.platform >>/acceptance<< parameters.ext >> \
-                -test.v=test2json -test.run TestAcceptance_LinksOntoTheRealPath
+                -test.v=test2json -test.run << parameters.run >>
           environment:
             SETUP_DOCKER_BINARY: ./dist/setup-docker/<< parameters.platform >>/setup-docker<< parameters.ext >>
       - store_test_results:
@@ -157,25 +161,19 @@ jobs:
   remote-docker-smoke:
     executor: base
     steps:
-      - checkout
       - setup_remote_docker
       - attach_workspace:
           at: .
-      - run:
-          name: Install Docker Compose via setup-docker
-          command: ./dist/setup-docker/linux/amd64/setup-docker --compose-version v2.29.7
-      - run:
-          name: Run compose file and assert output
-          command: |
-            out=$(docker compose -f acceptance/testdata/compose.yml up --abort-on-container-exit 2>&1)
-            echo "$out"
-            echo "$out" | grep -q "hello from compose"
-      - run:
-          name: Verify docker-compose version
-          command: docker-compose version
+      - smoke:
+          platform: linux/amd64
+          run: TestAcceptance_ComposeOnRemoteDocker
 
   login-smoke:
     executor: machine
+    environment:
+      SETUP_DOCKER_TEST_REGISTRY: localhost:5000
+      SETUP_DOCKER_TEST_REGISTRY_USER: testuser
+      SETUP_DOCKER_TEST_REGISTRY_PASS: testpass
     steps:
       - attach_workspace:
           at: .
@@ -192,49 +190,9 @@ jobs:
               registry:2
             # An auth-enabled registry answers 401 once it's up.
             timeout 30 sh -c 'until [ "$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/v2/)" = 401 ]; do sleep 1; done'
-      - run:
-          name: Log in to local registry
-          command: ./dist/setup-docker/linux/amd64/setup-docker login --registry localhost:5000
-          environment:
-            DOCKER_LOGIN: testuser
-            DOCKER_PASSWORD: testpass
-      - run:
-          name: Push a test image
-          command: |
-            docker pull busybox
-            docker tag busybox localhost:5000/busybox
-            docker push localhost:5000/busybox
-      - run:
-          name: Wrong password fails and output does not contain it
-          command: |
-            out=$(DOCKER_LOGIN=testuser DOCKER_PASSWORD=wrongpassword \
-              ./dist/setup-docker/linux/amd64/setup-docker login --registry localhost:5000 --retries 1 2>&1 || true)
-            echo "$out"
-            # must exit non-zero
-            DOCKER_LOGIN=testuser DOCKER_PASSWORD=wrongpassword \
-              ./dist/setup-docker/linux/amd64/setup-docker login --registry localhost:5000 --retries 1 && exit 1 || true
-            # output must not contain the wrong password
-            echo "$out" | grep -qv "wrongpassword"
-      - run:
-          name: Login with credentials-store pass
-          command: |
-            rm -f ~/.docker/config.json
-            REG_USER=testuser REG_PASS=testpass \
-              ./dist/setup-docker/linux/amd64/setup-docker login \
-                --registry localhost:5000 \
-                --username-env REG_USER \
-                --password-env REG_PASS \
-                --credentials-store
-      - run:
-          name: Assert credentials-store config and push
-          command: |
-            store=$(jq -r .credsStore ~/.docker/config.json)
-            echo "credsStore: $store"
-            [ "$store" = "pass" ]
-            inline=$(jq -r '.auths["localhost:5000"].auth // empty' ~/.docker/config.json)
-            echo "inline auth: '$inline'"
-            [ -z "$inline" ]
-            docker push localhost:5000/busybox
+      - smoke:
+          platform: linux/amd64
+          run: TestAcceptance_LoginToRegistry
 
 workflows:
   test-publish:
