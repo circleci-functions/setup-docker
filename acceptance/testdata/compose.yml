@@ -1,4 +1,0 @@
-services:
-  hello:
-    image: busybox
-    command: ["echo", "hello from compose"]
