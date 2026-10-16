@@ -24,7 +24,9 @@ func TestAcceptance_InstallsRequestedVersions(t *testing.T) {
 		"--buildx-version", "v0.38.0",
 		"--compose-version", "v2.29.7",
 		"--install-dockerize",
+		"--dockerize-version", "v0.15.2",
 		"--install-goss",
+		"--goss-version", "v0.4.10",
 		"--install-dir", s.BinDir,
 	)
 	out := r.StdoutString() + r.StderrString()
@@ -66,7 +68,9 @@ func TestAcceptance_InstallsRequestedVersions(t *testing.T) {
 			"--buildx-version", "v0.38.0",
 			"--compose-version", "v2.29.7",
 			"--install-dockerize",
+			"--dockerize-version", "v0.15.2",
 			"--install-goss",
+			"--goss-version", "v0.4.10",
 			"--install-dir", s.BinDir,
 		)
 		secondOut := r.StdoutString() + r.StderrString()

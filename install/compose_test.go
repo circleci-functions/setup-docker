@@ -56,7 +56,10 @@ func TestComposeInstall(t *testing.T) {
 
 	pluginDir := t.TempDir()
 	installDir := t.TempDir()
-	t.Setenv("PATH", installDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// Use only installDir on PATH — fake scripts use absolute #!/bin/sh shebangs,
+	// and we must not let a real "docker" on the executor's PATH cause compose to
+	// report an installed version and short-circuit the download.
+	t.Setenv("PATH", installDir)
 
 	ins := testInstaller(srv)
 	ins.InstallDir = installDir
@@ -101,6 +104,9 @@ func TestComposeChecksumMismatch(t *testing.T) {
 	ins := testInstaller(srv)
 	ins.InstallDir = t.TempDir()
 	ins.PluginDir = pluginDir
+	// Isolate PATH so no real "docker" on the executor reports an installed
+	// compose version and causes a keep-existing short-circuit.
+	t.Setenv("PATH", t.TempDir())
 
 	ctx := context.Background()
 	_, err = ins.Compose(ctx, p, version)

@@ -80,6 +80,10 @@ func TestBuildxChecksumMismatch(t *testing.T) {
 		t.Skip("script-based test not supported on Windows")
 	}
 
+	// Isolate from any real docker on the executor: if "docker buildx version"
+	// reports exactly v0.23.0 the keep-existing path fires and skips the checksum.
+	t.Setenv("PATH", t.TempDir())
+
 	const version = "v0.23.0"
 	p := Platform{"linux", "amd64"}
 	asset, err := p.buildxAsset(version)

@@ -68,6 +68,9 @@ func buildDockerizeServer(t *testing.T, version string, p Platform, hash string)
 
 func TestDockerizeInstall(t *testing.T) {
 	skipWindows(t)
+	// Isolate from any real dockerize on the executor so installedVersion
+	// never finds one and short-circuits the install.
+	t.Setenv("PATH", t.TempDir())
 	p := Current()
 	version := "v0.15.2"
 
@@ -175,6 +178,8 @@ func TestDockerizeExactMatch(t *testing.T) {
 
 func TestDockerizeOnlyBinaryExtracted(t *testing.T) {
 	skipWindows(t)
+	// Isolate from any real dockerize on the executor.
+	t.Setenv("PATH", t.TempDir())
 	p := Current()
 	version := "v0.15.2"
 
@@ -221,6 +226,9 @@ func TestDockerizeOnlyBinaryExtracted(t *testing.T) {
 
 func TestDockerizeRerunSkipsDownload(t *testing.T) {
 	skipWindows(t)
+	// Isolate from any real dockerize on the executor so the first run always
+	// downloads and the second run skips (rather than both being "keep").
+	t.Setenv("PATH", t.TempDir())
 	p := Current()
 	version := "v0.15.2"
 
