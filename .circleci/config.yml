@@ -174,6 +174,47 @@ jobs:
           name: Verify docker-compose version
           command: docker-compose version
 
+  login-smoke:
+    executor: machine
+    steps:
+      - attach_workspace:
+          at: .
+      - run:
+          name: Start local registry with htpasswd auth
+          command: |
+            mkdir -p auth
+            docker run --rm --entrypoint htpasswd httpd:2 -Bbn testuser testpass > auth/htpasswd
+            docker run -d -p 5000:5000 \
+              -v "$PWD/auth:/auth" \
+              -e REGISTRY_AUTH=htpasswd \
+              -e REGISTRY_AUTH_HTPASSWD_REALM=test \
+              -e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd \
+              registry:2
+            timeout 30 sh -c 'until curl -sf http://localhost:5000/v2/ 2>/dev/null; do sleep 1; done'
+      - run:
+          name: Log in to local registry
+          command: ./dist/setup-docker/linux/amd64/setup-docker login --registry localhost:5000
+          environment:
+            DOCKER_LOGIN: testuser
+            DOCKER_PASSWORD: testpass
+      - run:
+          name: Push a test image
+          command: |
+            docker pull busybox
+            docker tag busybox localhost:5000/busybox
+            docker push localhost:5000/busybox
+      - run:
+          name: Wrong password fails and output does not contain it
+          command: |
+            out=$(DOCKER_LOGIN=testuser DOCKER_PASSWORD=wrongpassword \
+              ./dist/setup-docker/linux/amd64/setup-docker login --registry localhost:5000 --retries 1 2>&1 || true)
+            echo "$out"
+            # must exit non-zero
+            DOCKER_LOGIN=testuser DOCKER_PASSWORD=wrongpassword \
+              ./dist/setup-docker/linux/amd64/setup-docker login --registry localhost:5000 --retries 1 && exit 1 || true
+            # output must not contain the wrong password
+            echo "$out" | grep -qv "wrongpassword"
+
 workflows:
   test-publish:
     jobs:
@@ -195,6 +236,8 @@ workflows:
           requires: [build]
       - remote-docker-smoke:
           requires: [build]
+      - login-smoke:
+          requires: [build]
       - toolkit/release-pr:
           name: release-pr
           executor: go
@@ -209,6 +252,7 @@ workflows:
             - smoke-macos
             - smoke-windows
             - remote-docker-smoke
+            - login-smoke
           context: [github-release]
           filters:
             branches:
