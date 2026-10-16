@@ -1,248 +1,192 @@
 version: 2.1
 
-orbs:
-  toolkit: https://raw.githubusercontent.com/circleci-functions/toolkit/refs/heads/main/orbs/toolkit.yml
-
-executors:
-  go:
-    docker:
-      - image: cimg/go:1.26
-  base:
-    docker:
-      - image: cimg/base:stable
-  machine:
-    machine:
-      image: ubuntu-2404:current
-  macos:
-    macos:
-      xcode: "16.4.0"
-  windows:
-    machine:
-      image: windows-server-2022-gui:current
-      shell: bash.exe -eo pipefail
-    resource_class: windows.medium
+# Throwaway spike for the build command's assumptions. Never merged.
+# Every measurement is printed as a "SPIKE key=value" line.
 
 commands:
-  smoke:
-    description: >-
-      Run the packaged acceptance suite on this executor's real PATH, then
-      resolve Docker tools by name in a process that sourced nothing.
+  builder:
     parameters:
-      platform:
-        type: string
-        description: The os/arch whose artifacts to run, e.g. linux/amd64.
-      ext:
+      opts:
         type: string
         default: ""
-        description: Executable suffix for the platform.
-      run:
-        type: string
-        default: TestAcceptance_LinksOntoTheRealPath
-        description: Test name to pass to -test.run.
     steps:
       - run:
-          name: Run smoke test
+          name: Create a docker-container builder
           command: |
-            mkdir -p test-results
-            ./dist/tools/<< parameters.platform >>/gotestsum<< parameters.ext >> \
-              --junitfile test-results/smoke.xml \
-              --format standard-verbose \
-              --raw-command -- \
-              ./dist/tools/<< parameters.platform >>/test2json<< parameters.ext >> \
-                -p acceptance \
-                ./dist/acceptance/<< parameters.platform >>/acceptance<< parameters.ext >> \
-                -test.v=test2json -test.run << parameters.run >>
-          environment:
-            SETUP_DOCKER_BINARY: ./dist/setup-docker/<< parameters.platform >>/setup-docker<< parameters.ext >>
-      - store_test_results:
-          path: test-results
+            docker version --format 'SPIKE client={{.Client.Version}} server={{.Server.Version}}'
+            echo "SPIKE buildx=$(docker buildx version)"
+            s=$(date +%s)
+            docker buildx create --name spike --driver docker-container << parameters.opts >> --use --bootstrap
+            echo "SPIKE builder_bootstrap_s=$(( $(date +%s) - s ))"
+
+  cached-build:
+    parameters:
+      label:
+        type: string
+    steps:
+      - run:
+          name: Build (<< parameters.label >>) with a local cache
+          command: |
+            from=""
+            if [ -f /tmp/buildx-cache/index.json ]; then from="--cache-from type=local,src=/tmp/buildx-cache"; fi
+            s=$(date +%s)
+            docker buildx build --progress=plain $from \
+              --cache-to type=local,dest=/tmp/buildx-cache-new,mode=max \
+              -f spike/Dockerfile spike 2>&1 | tee /tmp/build.log
+            echo "SPIKE << parameters.label >>_build_s=$(( $(date +%s) - s ))"
+            echo "SPIKE << parameters.label >>_cached_steps=$(grep -c ' CACHED' /tmp/build.log)"
+            if grep -q 'built-blob' /tmp/build.log; then r=ran; else r=cached; fi
+            echo "SPIKE << parameters.label >>_slow_step=$r"
+            echo "SPIKE << parameters.label >>_cache_size=$(du -sh /tmp/buildx-cache-new | cut -f1)"
+      - run:
+          name: Build (<< parameters.label >>) again with --load
+          command: |
+            s=$(date +%s)
+            docker buildx build --progress=plain --cache-from type=local,src=/tmp/buildx-cache-new \
+              --load -t spike:local -f spike/Dockerfile spike > /tmp/load.log 2>&1 || { cat /tmp/load.log; exit 1; }
+            echo "SPIKE << parameters.label >>_load_build_s=$(( $(date +%s) - s ))"
+            docker run --rm spike:local
+
+  restore-buildx-cache:
+    parameters:
+      prefix:
+        type: string
+    steps:
+      - restore_cache:
+          keys:
+            - << parameters.prefix >>-{{ .Revision }}-
+      - run:
+          name: Use the restored cache as the import source
+          command: |
+            if [ -d /tmp/buildx-cache-new ]; then mv /tmp/buildx-cache-new /tmp/buildx-cache; fi
+            echo "SPIKE restored_cache_size=$(du -sh /tmp/buildx-cache 2>/dev/null | cut -f1)"
 
 jobs:
-  test:
-    executor: go
+  remote-cold:
+    docker:
+      - image: cimg/base:current
     steps:
       - checkout
-      - toolkit/private-mod-init
-      - restore_cache:
-          keys:
-            - setup-docker-go-{{ checksum "go.sum" }}-
-            - setup-docker-go-
-      - run: task lint
-      - run: task lint-tasks
-      - run: task test
-      - store_test_results:
-          path: test-results
+      - setup_remote_docker
+      - builder
+      - cached-build:
+          label: remote_cold
       - save_cache:
-          key: setup-docker-go-{{ checksum "go.sum" }}-{{ epoch }}
+          key: spike-remote-{{ .Revision }}-{{ .BuildNum }}
           paths:
-            - ~/.cache/go-build
-            - ~/go/pkg/mod
+            - /tmp/buildx-cache-new
 
-  # Cross-compiles setup-docker into ./dist and persists it to the workspace,
-  # so smoke jobs exercise exactly what `publish` is about to ship.
-  build:
-    executor: go
+  remote-warm:
+    docker:
+      - image: cimg/base:current
     steps:
       - checkout
-      - toolkit/private-mod-init
-      - restore_cache:
-          keys:
-            - setup-docker-go-{{ checksum "go.sum" }}-
-            - setup-docker-go-
-      - run: task dry-run
-      - run: task build-acceptance build-tools
-      - persist_to_workspace:
-          root: .
-          paths:
-            - dist
+      - setup_remote_docker
+      - restore-buildx-cache:
+          prefix: spike-remote
+      - builder
+      - cached-build:
+          label: remote_warm
 
-  # Real downloads and a real task-agent. The suite installs into temp dirs and
-  # asserts the tools it put on PATH are the ones it installed.
-  acceptance:
-    executor: go
-    steps:
-      - checkout
-      - toolkit/private-mod-init
-      - restore_cache:
-          keys:
-            - setup-docker-go-{{ checksum "go.sum" }}-
-            - setup-docker-go-
-      - run:
-          name: Run acceptance tests
-          command: task acceptance
-          environment:
-            TOOLKIT_CACHE_MODE: live
-      - store_test_results:
-          path: test-results
-
-  bare-smoke:
-    executor: base
-    steps:
-      - attach_workspace:
-          at: .
-      - smoke:
-          platform: linux/amd64
-
-  smoke-machine:
-    executor: machine
-    steps:
-      - attach_workspace:
-          at: .
-      - smoke:
-          platform: linux/amd64
-
-  smoke-arm:
+  machine-cold:
     machine:
       image: ubuntu-2404:current
-    resource_class: arm.medium
     steps:
-      - attach_workspace:
-          at: .
-      - smoke:
-          platform: linux/arm64
+      - checkout
+      - builder
+      - cached-build:
+          label: machine_cold
+      - save_cache:
+          key: spike-machine-{{ .Revision }}-{{ .BuildNum }}
+          paths:
+            - /tmp/buildx-cache-new
 
-  smoke-macos:
-    executor: macos
+  machine-warm:
+    machine:
+      image: ubuntu-2404:current
     steps:
-      - attach_workspace:
-          at: .
-      - smoke:
-          platform: darwin/arm64
+      - checkout
+      - restore-buildx-cache:
+          prefix: spike-machine
+      - builder
+      - cached-build:
+          label: machine_warm
 
-  smoke-windows:
-    executor: windows
+  qemu-remote:
+    docker:
+      - image: cimg/base:current
     steps:
-      - attach_workspace:
-          at: .
-      - smoke:
-          platform: windows/amd64
-          ext: ".exe"
-
-  remote-docker-smoke:
-    executor: base
-    steps:
+      - checkout
       - setup_remote_docker
-      - attach_workspace:
-          at: .
-      - smoke:
-          platform: linux/amd64
-          run: TestAcceptance_ComposeOnRemoteDocker
-
-  login-smoke:
-    executor: machine
-    environment:
-      SETUP_DOCKER_TEST_REGISTRY: localhost:5000
-      SETUP_DOCKER_TEST_REGISTRY_USER: testuser
-      SETUP_DOCKER_TEST_REGISTRY_PASS: testpass
-    steps:
-      - attach_workspace:
-          at: .
       - run:
-          name: Start local registry with htpasswd auth
+          name: Register QEMU on the remote engine
           command: |
-            mkdir -p auth
-            docker run --rm --entrypoint htpasswd httpd:2 -Bbn testuser testpass > auth/htpasswd
-            docker run -d -p 5000:5000 \
-              -v "$PWD/auth:/auth" \
-              -e REGISTRY_AUTH=htpasswd \
-              -e REGISTRY_AUTH_HTPASSWD_REALM=test \
-              -e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd \
-              registry:2
-            # An auth-enabled registry answers 401 once it's up.
-            timeout 30 sh -c 'until [ "$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/v2/)" = 401 ]; do sleep 1; done'
-      - smoke:
-          platform: linux/amd64
-          run: TestAcceptance_LoginToRegistry
+            s=$(date +%s)
+            docker run --privileged --rm tonistiigi/binfmt:qemu-v10.2.3 --install arm64
+            echo "SPIKE qemu_install_s=$(( $(date +%s) - s ))"
+      - builder
+      - run:
+          name: Build and run an arm64 image on amd64
+          command: |
+            printf 'FROM alpine:3.22\nRUN uname -m > /arch\nCMD ["cat", "/arch"]\n' > /tmp/Dockerfile.arch
+            s=$(date +%s)
+            docker buildx build --progress=plain --platform linux/arm64 --load -t spike:arm -f /tmp/Dockerfile.arch /tmp
+            echo "SPIKE arm64_build_s=$(( $(date +%s) - s ))"
+            echo "SPIKE arm64_runs_as=$(docker run --rm --platform linux/arm64 spike:arm)"
+
+  multiarch-machine:
+    machine:
+      image: ubuntu-2404:current
+    steps:
+      - checkout
+      - run:
+          name: Start a local registry and register QEMU
+          command: |
+            docker run -d -p 5000:5000 --name registry registry:2
+            docker run --privileged --rm tonistiigi/binfmt:qemu-v10.2.3 --install arm64
+            printf '[registry."localhost:5000"]\n  http = true\n' > /tmp/buildkitd.toml
+      - builder:
+          opts: --driver-opt network=host --config /tmp/buildkitd.toml
+      - run:
+          name: Push multi-arch with and without provenance
+          command: |
+            printf 'FROM alpine:3.22\nRUN uname -m > /arch\nCMD ["cat", "/arch"]\n' > /tmp/Dockerfile.arch
+            for p in clean:--provenance=false default:; do
+              tag=${p%%:*}; flag=${p#*:}
+              docker buildx build --progress=plain --platform linux/amd64,linux/arm64 $flag --push \
+                -t localhost:5000/spike:$tag -f /tmp/Dockerfile.arch /tmp > /tmp/push-$tag.log 2>&1 || { cat /tmp/push-$tag.log; exit 1; }
+              entries=$(curl -s -H 'Accept: application/vnd.oci.image.index.v1+json' \
+                http://localhost:5000/v2/spike/manifests/$tag | jq -r '[.manifests[] | "\(.platform.os)/\(.platform.architecture)"] | join(",")')
+              echo "SPIKE index_$tag=$entries"
+            done
+
+  checks:
+    machine:
+      image: ubuntu-2404:current
+    steps:
+      - checkout
+      - run:
+          name: Build check exit codes
+          command: |
+            echo "SPIKE buildx=$(docker buildx version)"
+            for d in check-clean check-warn check-error; do
+              code=0; docker buildx build --call=check spike/$d > /tmp/$d.log 2>&1 || code=$?
+              echo "SPIKE ${d}_exit=$code"
+              sed 's/^/    /' /tmp/$d.log
+            done
+            code=0; docker buildx build --call=check,format=json spike/check-warn > /tmp/warn.json 2>/dev/null || code=$?
+            echo "SPIKE check_warn_json_exit=$code"
+            jq -c '[.warnings[]?.ruleName]' /tmp/warn.json | sed 's/^/SPIKE check_warn_rules=/'
 
 workflows:
-  test-publish:
+  spike:
     jobs:
-      - test:
-          context: [github-readonly]
-      - build:
-          context: [github-readonly]
-      - acceptance:
-          context: [github-readonly]
-      - bare-smoke:
-          requires: [build]
-      - smoke-machine:
-          requires: [build]
-      - smoke-arm:
-          requires: [build]
-      - smoke-macos:
-          requires: [build]
-      - smoke-windows:
-          requires: [build]
-      - remote-docker-smoke:
-          requires: [build]
-      - login-smoke:
-          requires: [build]
-      - toolkit/release-pr:
-          name: release-pr
-          executor: go
-          cache-prefix: setup-docker-go
-          serial-group: << pipeline.project.slug >>/release-pr
-          requires: &release-requires
-            - test
-            - acceptance
-            - bare-smoke
-            - smoke-machine
-            - smoke-arm
-            - smoke-macos
-            - smoke-windows
-            - remote-docker-smoke
-            - login-smoke
-          context: [github-release]
-          filters:
-            branches:
-              only: main
-      - toolkit/publish:
-          name: publish
-          executor: go
-          cache-prefix: setup-docker-go
-          serial-group: << pipeline.project.slug >>/publish
-          requires: *release-requires
-          context: [functions-publisher, github-release]
-          filters:
-            branches:
-              only: main
+      - remote-cold
+      - remote-warm:
+          requires: [remote-cold]
+      - machine-cold
+      - machine-warm:
+          requires: [machine-cold]
+      - qemu-remote
+      - multiarch-machine
+      - checks
