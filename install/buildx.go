@@ -3,9 +3,12 @@ package install
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/mod/semver"
 )
 
 func (i Installer) Buildx(ctx context.Context, p Platform, want string) (Result, error) {
@@ -70,4 +73,21 @@ func (i Installer) verifyBuildxOnPath(ctx context.Context, v string) error {
 		return fmt.Errorf("docker buildx reports %q, not %s", got, v)
 	}
 	return nil
+}
+
+// BuildxAtLeast keeps an installed buildx at or above minVersion and otherwise installs the pinned default,
+// for callers that need buildx features older images lack.
+func (i Installer) BuildxAtLeast(ctx context.Context, p Platform, minVersion string) (Result, error) {
+	have, _ := installedVersion(ctx, "docker", "buildx", "version")
+	if !olderThan(have, minVersion) {
+		return Result{Tool: "buildx", Version: have, Kept: true}, nil
+	}
+	if have != "" {
+		fmt.Fprintf(os.Stderr, "setup-docker: buildx %s is older than %s; installing %s\n", have, minVersion, DefaultBuildxVersion)
+	}
+	return i.Buildx(ctx, p, DefaultBuildxVersion)
+}
+
+func olderThan(have, minVersion string) bool {
+	return have == "" || semver.Compare("v"+strings.TrimPrefix(have, "v"), "v"+strings.TrimPrefix(minVersion, "v")) < 0
 }

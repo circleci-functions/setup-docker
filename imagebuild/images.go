@@ -9,3 +9,6 @@ const (
 	binfmtImage      = "tonistiigi/binfmt:" + binfmtVersion
 	sbomScannerImage = "docker/buildkit-syft-scanner:" + sbomScannerVersion
 )
+
+// --call=check needs buildx 0.15; images such as cimg/base:stable ship an older one.
+const minBuildxVersion = "0.15.0"

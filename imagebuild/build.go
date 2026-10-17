@@ -61,7 +61,7 @@ func prepareBuild(ctx context.Context, client *sdk.Client, f Flags) (plan, error
 		return plan{}, fmt.Errorf("build needs a Linux Docker engine; this one runs windows containers")
 	}
 
-	if _, err := install.New("").Buildx(ctx, install.Current(), ""); err != nil {
+	if _, err := install.New("").BuildxAtLeast(ctx, install.Current(), minBuildxVersion); err != nil {
 		return plan{}, fmt.Errorf("ensure buildx: %w", err)
 	}
 

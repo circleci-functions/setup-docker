@@ -51,7 +51,7 @@ commands:
               ./dist/tools/<< parameters.platform >>/test2json<< parameters.ext >> \
                 -p acceptance \
                 ./dist/acceptance/<< parameters.platform >>/acceptance<< parameters.ext >> \
-                -test.v=test2json -test.run << parameters.run >>
+                -test.v=test2json -test.run '<< parameters.run >>'
           environment:
             SETUP_DOCKER_BINARY: ./dist/setup-docker/<< parameters.platform >>/setup-docker<< parameters.ext >>
       - store_test_results:
