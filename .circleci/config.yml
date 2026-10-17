@@ -37,7 +37,7 @@ commands:
         description: Executable suffix for the platform.
       run:
         type: string
-        default: TestAcceptance_LinksOntoTheRealPath
+        default: TestAcceptance_LinksOntoTheRealPath|TestAcceptance_Lint
         description: Test name to pass to -test.run.
     steps:
       - run:

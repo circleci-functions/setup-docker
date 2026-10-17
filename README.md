@@ -106,6 +106,34 @@ environment automatically. No `DOCKER_LOGIN` or `DOCKER_PASSWORD` are read.
 | `credentials-helper` | | Credential helper to use (`pass` or `osxkeychain`). Empty picks `pass` on Linux and `osxkeychain` on macOS. |
 | `credentials-helper-version` | | Credential helper version. Empty installs the pinned version. |
 
+## Linting Dockerfiles
+
+Use `setup-docker/lint` to lint Dockerfiles with [hadolint](https://github.com/hadolint/hadolint).
+Results can be collected for the Test Summary tab via `store_test_results`.
+
+```yaml
+      - setup-docker/lint:
+          with:
+            dockerfiles: Dockerfile
+            failure-threshold: warning
+            ignore-rules: DL3008,SC2086
+            trusted-registries: docker.io
+            results-file: test-results/hadolint.xml
+      - store_test_results:
+          path: test-results
+```
+
+### Arguments for `setup-docker/lint`
+
+| Argument | Default | Description |
+|------|---------|-------------|
+| `dockerfiles` | `Dockerfile` | Dockerfiles to lint, newline or colon separated. |
+| `failure-threshold` | `info` | Fail on findings at or above this level (`error`, `warning`, `info`, `style`, `ignore`, `none`). |
+| `ignore-rules` | | Rules to ignore, comma separated, e.g. `DL3008,SC2086`. |
+| `trusted-registries` | | Registries base images may come from, comma separated. Others are reported. |
+| `results-file` | | Also write the findings as JUnit XML to this path, for `store_test_results`. |
+| `hadolint-version` | | hadolint version, or `latest`. Empty installs the pinned version. |
+
 ## Remote Docker
 
 With `setup_remote_docker`, this function sets up the Docker client only. The engine
