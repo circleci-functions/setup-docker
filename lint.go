@@ -15,7 +15,7 @@ import (
 )
 
 type lintCmd struct {
-	Dockerfiles       string `default:"Dockerfile" help:"Dockerfiles to lint, newline or colon separated."`
+	Dockerfiles       string `default:"Dockerfile" help:"Dockerfiles to lint, newline or colon separated (semicolon on Windows)."`
 	FailureThreshold  string `enum:"error,warning,info,style,ignore,none" default:"info" help:"Fail on findings at or above this level, as hadolint does: style, ignore and none fail on any finding."`
 	IgnoreRules       string `help:"Rules to ignore, comma separated, e.g. DL3008,SC2086."`
 	TrustedRegistries string `help:"Registries base images may come from, comma separated. Others are reported."`
@@ -34,7 +34,7 @@ func (c *lintCmd) Run(ctx context.Context, _ *sdk.Client) error {
 		return fmt.Errorf("hadolint: %w", err)
 	}
 
-	files := splitDockerfiles(c.Dockerfiles)
+	files := splitDockerfiles(c.Dockerfiles, filepath.ListSeparator)
 	if len(files) == 0 {
 		return fmt.Errorf("no Dockerfiles specified")
 	}
@@ -124,9 +124,11 @@ func hadolintArgs(threshold, ignoreRules, trustedRegs, format, file string) []st
 	return append(args, file)
 }
 
-func splitDockerfiles(s string) []string {
+// splitDockerfiles splits on newlines and the OS path-list separator: ':' as the orb did, but ';' on Windows,
+// where ':' is part of a drive letter.
+func splitDockerfiles(s string, listSep rune) []string {
 	var result []string
-	for _, part := range strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == ':' }) {
+	for _, part := range strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == listSep }) {
 		if t := strings.TrimSpace(part); t != "" {
 			result = append(result, t)
 		}

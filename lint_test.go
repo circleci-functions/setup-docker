@@ -11,6 +11,7 @@ func TestSplitDockerfiles(t *testing.T) {
 	cases := []struct {
 		name  string
 		input string
+		sep   rune
 		want  []string
 	}{
 		{name: "single", input: "Dockerfile", want: []string{"Dockerfile"}},
@@ -20,10 +21,16 @@ func TestSplitDockerfiles(t *testing.T) {
 		{name: "trims spaces", input: " a/Dockerfile : b/Dockerfile ", want: []string{"a/Dockerfile", "b/Dockerfile"}},
 		{name: "drops empties", input: "a/Dockerfile::b/Dockerfile", want: []string{"a/Dockerfile", "b/Dockerfile"}},
 		{name: "empty string", input: "", want: nil},
+		{name: "windows drive paths", input: `C:\a\Dockerfile;D:\b\Dockerfile`, sep: ';',
+			want: []string{`C:\a\Dockerfile`, `D:\b\Dockerfile`}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := splitDockerfiles(tc.input)
+			sep := tc.sep
+			if sep == 0 {
+				sep = ':'
+			}
+			got := splitDockerfiles(tc.input, sep)
 			assert.Check(t, cmp.DeepEqual(got, tc.want))
 		})
 	}
