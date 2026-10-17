@@ -208,7 +208,7 @@ jobs:
             timeout 30 sh -c 'until curl -sf http://localhost:5000/v2/; do sleep 1; done'
       - smoke:
           platform: linux/amd64
-          run: "TestAcceptance_(BuildAndPush|MultiArch|SBOM|Check)"
+          run: "TestAcceptance_(BuildAndPush|MultiArch|SBOM|Check|Merge)"
 
   build-remote-smoke:
     executor: base
@@ -246,6 +246,58 @@ jobs:
           platform: linux/amd64
           run: TestAcceptance_BuildCache
 
+  fanout-amd64:
+    executor: machine
+    environment:
+      SETUP_DOCKER_TEST_FANOUT_IMAGE: ttl.sh/setup-docker-acc-<< pipeline.id >>
+      SETUP_DOCKER_TEST_FANOUT_PHASE: build
+      SETUP_DOCKER_TEST_DIGESTS_DIR: digests
+    steps:
+      - attach_workspace:
+          at: .
+      - run: mkdir -p digests
+      - smoke:
+          platform: linux/amd64
+          run: TestAcceptance_FanOut
+      - persist_to_workspace:
+          root: .
+          paths:
+            - digests
+
+  fanout-arm64:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: arm.medium
+    environment:
+      SETUP_DOCKER_TEST_FANOUT_IMAGE: ttl.sh/setup-docker-acc-<< pipeline.id >>
+      SETUP_DOCKER_TEST_FANOUT_PHASE: build
+      SETUP_DOCKER_TEST_DIGESTS_DIR: digests
+    steps:
+      - attach_workspace:
+          at: .
+      - run: mkdir -p digests
+      - smoke:
+          platform: linux/arm64
+          run: TestAcceptance_FanOut
+      - persist_to_workspace:
+          root: .
+          paths:
+            - digests
+
+  fanout-merge:
+    docker:
+      - image: cimg/base:stable
+    environment:
+      SETUP_DOCKER_TEST_FANOUT_IMAGE: ttl.sh/setup-docker-acc-<< pipeline.id >>
+      SETUP_DOCKER_TEST_FANOUT_PHASE: merge
+      SETUP_DOCKER_TEST_DIGESTS_DIR: digests
+    steps:
+      - attach_workspace:
+          at: .
+      - smoke:
+          platform: linux/amd64
+          run: TestAcceptance_FanOut
+
 workflows:
   test-publish:
     jobs:
@@ -277,6 +329,12 @@ workflows:
           requires: [build]
       - build-cache-warm:
           requires: [build-cache-cold]
+      - fanout-amd64:
+          requires: [build]
+      - fanout-arm64:
+          requires: [build]
+      - fanout-merge:
+          requires: [build, fanout-amd64, fanout-arm64]
       - toolkit/release-pr:
           name: release-pr
           executor: go
@@ -296,6 +354,9 @@ workflows:
             - build-remote-smoke
             - build-cache-cold
             - build-cache-warm
+            - fanout-amd64
+            - fanout-arm64
+            - fanout-merge
           context: [github-release]
           filters:
             branches:
