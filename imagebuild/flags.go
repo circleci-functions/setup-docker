@@ -7,7 +7,7 @@ type Flags struct {
 	Image                 string `required:"" help:"Image to build, e.g. myorg/app or ghcr.io/org/app."`
 	Registry              string `default:"docker.io" help:"Registry prefixed to image when image names no registry."`
 	Tags                  string `help:"Tags, comma or newline separated. Empty uses $CIRCLE_SHA1."`
-	Dockerfile            string `default:"Dockerfile" help:"Path to the Dockerfile."`
+	Dockerfile            string `help:"Path to the Dockerfile. Empty uses the Dockerfile in context."`
 	Context               string `default:"." help:"Build context directory."`
 	Target                string `help:"Build stage to stop at."`
 	Platforms             string `help:"Target platforms, comma separated, e.g. linux/amd64,linux/arm64."`

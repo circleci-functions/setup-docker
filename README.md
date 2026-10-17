@@ -203,7 +203,7 @@ Turn cache off or share it explicitly:
 | `image` | (required) | Image to build, e.g. `myorg/app` or `ghcr.io/org/app`. |
 | `registry` | `docker.io` | Registry prefixed to image when image names no registry. |
 | `tags` | | Tags, comma or newline separated. Empty uses `$CIRCLE_SHA1`. |
-| `dockerfile` | `Dockerfile` | Path to the Dockerfile. |
+| `dockerfile` | | Path to the Dockerfile. Empty uses the `Dockerfile` in `context`. |
 | `context` | `.` | Build context directory. |
 | `target` | | Build stage to stop at. |
 | `platforms` | | Target platforms, comma separated, e.g. `linux/amd64,linux/arm64`. |

@@ -3,6 +3,7 @@ package imagebuild
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -130,6 +131,23 @@ func TestBuildArgs(t *testing.T) {
 				containsAll("-t", "docker.io/myorg/app:latest"),
 				containsAll("--load"),
 				containsAll("--provenance=false"),
+				endsWithContext("."),
+			},
+		},
+		{
+			name: "NoDockerfileUsesTheContexts",
+			flags: func() Flags {
+				f := baseFlags()
+				f.Dockerfile = ""
+				return f
+			},
+			plan: func(dir string) plan {
+				return plan{builder: "b", refs: baseRefs, load: true, metadataFile: "/tmp/m.json"}
+			},
+			checks: []func(t *testing.T, args []string){
+				func(t *testing.T, args []string) {
+					assert.Check(t, !slices.Contains(args, "-f"), "args %v pass -f", args)
+				},
 				endsWithContext("."),
 			},
 		},

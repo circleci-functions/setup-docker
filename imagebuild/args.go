@@ -127,8 +127,8 @@ func buildArgs(f Flags, p plan) []string {
 		"buildx", "build",
 		"--builder", p.builder,
 		"--progress=plain",
-		"-f", f.Dockerfile,
 	}
+	args = appendDockerfile(f, args)
 	if !f.PushByDigest {
 		for _, r := range p.refs {
 			args = append(args, "-t", r)
@@ -152,6 +152,13 @@ func buildArgs(f Flags, p plan) []string {
 }
 
 // appendBuildInputArgs appends --build-arg, --label, --secret, --pull, --no-cache.
+func appendDockerfile(f Flags, args []string) []string {
+	if f.Dockerfile == "" {
+		return args
+	}
+	return append(args, "-f", f.Dockerfile)
+}
+
 func appendBuildInputArgs(f Flags, args []string) []string {
 	for _, line := range splitLines(f.BuildArgs) {
 		args = append(args, "--build-arg", line)

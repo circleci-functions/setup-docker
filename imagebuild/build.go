@@ -230,15 +230,12 @@ func writeSBOM(ctx context.Context, f Flags, p plan) error {
 
 // sbomBuildArgs returns the argv for the SBOM-extraction build.
 func sbomBuildArgs(f Flags, p plan, destDir string) []string {
-	return []string{
-		"buildx", "build",
-		"--builder", p.builder,
-		"--progress=plain",
-		"-f", f.Dockerfile,
-		"--sbom=generator=" + p.sbomGen,
-		"--output", "type=local,dest=" + destDir,
+	args := appendDockerfile(f, []string{"buildx", "build", "--builder", p.builder, "--progress=plain"})
+	return append(args,
+		"--sbom=generator="+p.sbomGen,
+		"--output", "type=local,dest="+destDir,
 		f.Context,
-	}
+	)
 }
 
 func parsePlatforms(s string) []string {
