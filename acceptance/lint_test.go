@@ -42,18 +42,19 @@ func TestAcceptance_Lint(t *testing.T) {
 		assert.Assert(t, err != nil, "bad Dockerfile should fail lint; got: %s", out)
 	})
 
-	t.Run("failure-threshold none passes bad file", func(t *testing.T) {
+	t.Run("failure-threshold error passes a warning-only file", func(t *testing.T) {
+		warnFile := filepath.Join(tmp, "Dockerfile.warn")
+		assert.NilError(t, os.WriteFile(warnFile, []byte("FROM alpine:3.22\nRUN apk add curl\n"), 0o600))
 		r := runner.New(t, binaryPath, runner.WithUnsafeOSEnvVars())
-		_, err := r.Run("lint", "--failure-threshold", "none", "--dockerfiles", badFile)
+		_, err := r.Run("lint", "--failure-threshold", "error", "--dockerfiles", warnFile)
 		out := r.StdoutString() + r.StderrString()
-		assert.NilError(t, err, "--failure-threshold none should pass any file: %s", out)
+		assert.NilError(t, err, "warnings are below the error threshold: %s", out)
 	})
 
 	t.Run("results file written with DL4000", func(t *testing.T) {
 		resultsFile := filepath.Join(tmp, "results.xml")
 		r := runner.New(t, binaryPath, runner.WithUnsafeOSEnvVars())
 		_, _ = r.Run("lint",
-			"--failure-threshold", "none",
 			"--dockerfiles", badFile,
 			"--results-file", resultsFile,
 		)

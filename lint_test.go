@@ -46,10 +46,10 @@ func TestHadolintArgs(t *testing.T) {
 			want:      []string{"--failure-threshold", "info", "Dockerfile"},
 		},
 		{
-			name:      "threshold none maps to --no-fail",
+			name:      "threshold none passes through",
 			threshold: "none",
 			file:      "Dockerfile",
-			want:      []string{"--no-fail", "Dockerfile"},
+			want:      []string{"--failure-threshold", "none", "Dockerfile"},
 		},
 		{
 			name:      "with format",

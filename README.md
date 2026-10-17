@@ -128,7 +128,7 @@ Results can be collected for the Test Summary tab via `store_test_results`.
 | Argument | Default | Description |
 |------|---------|-------------|
 | `dockerfiles` | `Dockerfile` | Dockerfiles to lint, newline or colon separated. |
-| `failure-threshold` | `info` | Fail on findings at or above this level (`error`, `warning`, `info`, `style`, `ignore`, `none`). |
+| `failure-threshold` | `info` | Fail on findings at or above this level: `error`, `warning`, `info`, `style`, `ignore`, `none`. As in hadolint, `style`, `ignore` and `none` fail on any finding. |
 | `ignore-rules` | | Rules to ignore, comma separated, e.g. `DL3008,SC2086`. |
 | `trusted-registries` | | Registries base images may come from, comma separated. Others are reported. |
 | `results-file` | | Also write the findings as JUnit XML to this path, for `store_test_results`. |

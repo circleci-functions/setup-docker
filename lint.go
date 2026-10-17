@@ -16,7 +16,7 @@ import (
 
 type lintCmd struct {
 	Dockerfiles       string `default:"Dockerfile" help:"Dockerfiles to lint, newline or colon separated."`
-	FailureThreshold  string `enum:"error,warning,info,style,ignore,none" default:"info" help:"Fail on findings at or above this level."`
+	FailureThreshold  string `enum:"error,warning,info,style,ignore,none" default:"info" help:"Fail on findings at or above this level, as hadolint does: style, ignore and none fail on any finding."`
 	IgnoreRules       string `help:"Rules to ignore, comma separated, e.g. DL3008,SC2086."`
 	TrustedRegistries string `help:"Registries base images may come from, comma separated. Others are reported."`
 	ResultsFile       string `help:"Also write the findings as JUnit XML to this path, for store_test_results."`
@@ -111,12 +111,7 @@ func mergeJUnit(parts [][]byte) []byte {
 }
 
 func hadolintArgs(threshold, ignoreRules, trustedRegs, format, file string) []string {
-	var args []string
-	if threshold == "none" {
-		args = append(args, "--no-fail")
-	} else {
-		args = append(args, "--failure-threshold", threshold)
-	}
+	args := []string{"--failure-threshold", threshold}
 	if format != "" {
 		args = append(args, "--format", format)
 	}
