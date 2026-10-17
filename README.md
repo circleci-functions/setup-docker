@@ -231,9 +231,13 @@ Turn cache off or share it explicitly:
 
 ### Platform note
 
-`setup-docker/build` needs a Linux Docker engine. Use a docker executor with
-`setup_remote_docker`, or a machine executor. macOS jobs need `DOCKER_HOST` pointing at
-a Linux daemon.
+On Windows executors, `build` builds Windows container images with Docker's classic
+builder. The following arguments are not available on Windows: `platforms`, `cache-from`,
+`cache-to`, `sbom`, `sbom-file`, `provenance`, `secret-envs`, `check`, `push-by-digest`,
+`buildkitd-config`, and `load=false`. The layer cache is also unavailable on Windows.
+
+For Linux images, use a docker executor with `setup_remote_docker`, a machine executor,
+or point `DOCKER_HOST` at a Linux daemon. macOS jobs also need `DOCKER_HOST`.
 
 ## Merging per-platform builds
 

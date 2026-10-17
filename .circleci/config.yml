@@ -157,6 +157,7 @@ jobs:
       - smoke:
           platform: windows/amd64
           ext: ".exe"
+          run: TestAcceptance_LinksOntoTheRealPath|TestAcceptance_Lint|TestAcceptance_WindowsClassicBuild
 
   remote-docker-smoke:
     executor: base
