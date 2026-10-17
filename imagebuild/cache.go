@@ -66,6 +66,11 @@ func restoreCache(ctx context.Context, client *sdk.Client, f Flags) string {
 	_, restoreKeys := cacheKeys(f)
 	_, err = client.RestoreCache(ctx, restoreKeys, sdk.WithStepName("Restoring Docker layer cache"))
 	sdk.LogCacheErr("restore", err)
+	// The cache is saved from, and so restored to, the directory the last build exported into.
+	if _, err := os.Stat(dir + ".new"); err == nil {
+		_ = os.RemoveAll(dir)
+		sdk.LogCacheErr("restore", os.Rename(dir+".new", dir))
+	}
 	return dir
 }
 

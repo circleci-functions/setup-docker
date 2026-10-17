@@ -156,14 +156,13 @@ func TestCacheRoundTrip(t *testing.T) {
 	assert.NilError(t, os.RemoveAll(newDir))
 	assert.NilError(t, os.RemoveAll(dir))
 
-	_, restoreKeys := cacheKeys(f)
-	_, err = client.RestoreCache(ctx, restoreKeys)
-	assert.NilError(t, err)
+	assert.Check(t, cmp.Equal(restoreCache(ctx, client, f), dir))
 
-	// After restore the marker should be reachable under one of the restored paths.
-	got, readErr := os.ReadFile(filepath.Join(newDir, "marker")) //nolint:gosec
+	got, readErr := os.ReadFile(filepath.Join(dir, "marker")) //nolint:gosec
 	assert.NilError(t, readErr)
-	assert.Equal(t, string(got), "cached")
+	assert.Check(t, cmp.Equal(string(got), "cached"))
+	_, statErr := os.Stat(newDir)
+	assert.Check(t, os.IsNotExist(statErr), "the restored export dir becomes the import dir")
 }
 
 // TestEnsureBuilder_InspectSucceeds verifies that when inspect succeeds, create is not called.
