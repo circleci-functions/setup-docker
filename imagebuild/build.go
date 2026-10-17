@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +33,7 @@ func Build(ctx context.Context, client *sdk.Client, f Flags) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	defer os.Remove(p.metadataFile)
 
 	args := buildArgs(f, p)
 
@@ -101,8 +103,6 @@ func prepareBuild(ctx context.Context, client *sdk.Client, f Flags) (plan, error
 // finaliseBuild reads the digest, writes output files, registers the cache
 // save, and prints the summary line.
 func finaliseBuild(ctx context.Context, client *sdk.Client, f Flags, p plan) (Result, error) {
-	defer os.Remove(p.metadataFile)
-
 	digest, err := readDigest(p.metadataFile)
 	if err != nil {
 		return Result{}, err
@@ -158,7 +158,7 @@ func runBuild(ctx context.Context, f Flags, args []string) error {
 		var buf bytes.Buffer
 		cmd := exec.CommandContext(ctx, "docker", args...)
 		cmd.Stdout = os.Stderr
-		cmd.Stderr = &multiWriter{a: os.Stderr, b: &buf}
+		cmd.Stderr = io.MultiWriter(os.Stderr, &buf)
 		lastErr = cmd.Run()
 		lastOutput = buf.Bytes()
 		if lastErr == nil {
@@ -166,15 +166,6 @@ func runBuild(ctx context.Context, f Flags, args []string) error {
 		}
 	}
 	return lastErr
-}
-
-type multiWriter struct {
-	a, b interface{ Write([]byte) (int, error) }
-}
-
-func (m *multiWriter) Write(p []byte) (int, error) {
-	_, _ = m.b.Write(p)
-	return m.a.Write(p)
 }
 
 func isPushFailure(output []byte) bool {
