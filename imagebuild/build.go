@@ -29,6 +29,19 @@ func Build(ctx context.Context, client *sdk.Client, f Flags) (Result, error) {
 		return Result{}, err
 	}
 
+	osType, err := engineOS(ctx)
+	if err != nil {
+		return Result{}, err
+	}
+
+	if osType == "windows" {
+		imgRefs, err := refs(f, os.Getenv("CIRCLE_SHA1"))
+		if err != nil {
+			return Result{}, err
+		}
+		return buildClassic(ctx, f, imgRefs)
+	}
+
 	p, err := prepareBuild(ctx, client, f)
 	if err != nil {
 		return Result{}, err
@@ -50,17 +63,9 @@ func Build(ctx context.Context, client *sdk.Client, f Flags) (Result, error) {
 	return finaliseBuild(ctx, client, f, p)
 }
 
-// prepareBuild checks the engine, installs buildx, sets up the builder and
-// cache, returning a ready plan.
+// prepareBuild installs buildx, sets up the builder and cache, returning a
+// ready plan. Called only for Linux engines; Windows takes the classic path.
 func prepareBuild(ctx context.Context, client *sdk.Client, f Flags) (plan, error) {
-	osType, err := engineOS(ctx)
-	if err != nil {
-		return plan{}, err
-	}
-	if osType == "windows" {
-		return plan{}, fmt.Errorf("build needs a Linux Docker engine; this one runs windows containers")
-	}
-
 	if _, err := install.New("").BuildxAtLeast(ctx, install.Current(), minBuildxVersion); err != nil {
 		return plan{}, fmt.Errorf("ensure buildx: %w", err)
 	}
