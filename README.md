@@ -129,6 +129,112 @@ Passed under `with:`.
 | `goss-version` | | goss version, or `latest`. Empty keeps goss on `PATH`, else installs the pinned version. |
 | `install-dir` | | Link binaries into this directory instead of one already on `PATH`. |
 
+## Building and pushing
+
+Use `setup-docker/build` after `setup-docker` (or `setup-docker/login` for authenticated
+registries) to build and push images with buildx.
+
+**Docker Hub after login:**
+
+```yaml
+      - setup-docker/login
+      - setup-docker/build:
+          with:
+            image: myorg/app
+            tags: latest
+            push: true
+```
+
+**GHCR multi-arch:**
+
+```yaml
+      - setup-docker/build:
+          with:
+            image: ghcr.io/myorg/app
+            tags: latest
+            platforms: linux/amd64,linux/arm64
+            push: true
+```
+
+**Layer cache** (on by default, keyed by branch with a fallback, saved at the end of the
+job even when it fails):
+
+```yaml
+      - setup-docker/build:
+          with:
+            image: myorg/app
+            tags: latest
+            # cache-scope separates caches for different images in the same pipeline
+            cache-scope: my-app
+            # push: true  # add to also push
+```
+
+Turn cache off or share it explicitly:
+
+```yaml
+      - setup-docker/build:
+          with:
+            image: myorg/app
+            tags: latest
+            cache: false        # disable CI layer cache
+```
+
+**Check, SBOM, push-by-digest, and build-args:**
+
+```yaml
+      - setup-docker/build:
+          with:
+            image: myorg/app
+            tags: latest
+            check: true
+            sbom: true
+            sbom-file: /tmp/sbom.json
+            push-by-digest: true
+            digest-file: /tmp/digest.txt
+            build-args: |
+              APP_VERSION=1.2.3
+              BUILD_DATE=2025-01-01
+```
+
+### Arguments for `setup-docker/build`
+
+| Argument | Default | Description |
+|---|---|---|
+| `image` | (required) | Image to build, e.g. `myorg/app` or `ghcr.io/org/app`. |
+| `registry` | `docker.io` | Registry prefixed to image when image names no registry. |
+| `tags` | | Tags, comma or newline separated. Empty uses `$CIRCLE_SHA1`. |
+| `dockerfile` | | Path to the Dockerfile. Empty uses the `Dockerfile` in `context`. |
+| `context` | `.` | Build context directory. |
+| `target` | | Build stage to stop at. |
+| `platforms` | | Target platforms, comma separated, e.g. `linux/amd64,linux/arm64`. |
+| `push` | | Push the image after building. |
+| `load` | `auto` | Load into the Docker engine. `auto` loads single-platform non-push builds. |
+| `build-args` | | Build arguments, one `KEY=VALUE` per line. |
+| `labels` | | Image labels, one `KEY=VALUE` per line. |
+| `secret-envs` | | Build secrets from env vars, comma or newline separated. |
+| `pull` | | Always pull newer base images. |
+| `no-cache` | | Disable Docker's build cache. |
+| `cache` | `true` | Cache layers in the CircleCI job cache. |
+| `cache-scope` | | Separates layer caches for different images. Empty uses the image name. |
+| `cache-from` | | Extra cache sources, whitespace separated. |
+| `cache-to` | | Extra cache destinations, whitespace separated. |
+| `provenance` | | Attach a provenance attestation. |
+| `sbom` | | Attach an SBOM attestation. Needs `push` or `sbom-file`. |
+| `sbom-file` | | Also write the SBOM (SPDX JSON) to this path. |
+| `check` | | Run Dockerfile build checks first. Warnings are printed; errors fail the build. |
+| `check-warnings-as-errors` | | With `check`, fail on warnings too. |
+| `push-by-digest` | | Push without tags; write the digest to `digest-file`. |
+| `digest-file` | | Write the image digest to this path. |
+| `buildkitd-config` | | Path to a `buildkitd.toml`, e.g. for a registry mirror or plain HTTP. |
+| `extra-args` | | Extra `docker buildx build` arguments. |
+| `retries` | `3` | Times to retry a build that fails while pushing. |
+
+### Platform note
+
+`setup-docker/build` needs a Linux Docker engine. Use a docker executor with
+`setup_remote_docker`, or a machine executor. macOS jobs need `DOCKER_HOST` pointing at
+a Linux daemon.
+
 ## Platform support
 
 Linux and macOS on amd64 and arm64. Windows amd64 is supported for the Docker CLI,

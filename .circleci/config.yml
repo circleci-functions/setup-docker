@@ -51,7 +51,7 @@ commands:
               ./dist/tools/<< parameters.platform >>/test2json<< parameters.ext >> \
                 -p acceptance \
                 ./dist/acceptance/<< parameters.platform >>/acceptance<< parameters.ext >> \
-                -test.v=test2json -test.run << parameters.run >>
+                -test.v=test2json -test.run '<< parameters.run >>'
           environment:
             SETUP_DOCKER_BINARY: ./dist/setup-docker/<< parameters.platform >>/setup-docker<< parameters.ext >>
       - store_test_results:
@@ -194,6 +194,58 @@ jobs:
           platform: linux/amd64
           run: TestAcceptance_LoginToRegistry
 
+  build-smoke:
+    executor: machine
+    environment:
+      SETUP_DOCKER_TEST_PUSH_REGISTRY: localhost:5000
+    steps:
+      - attach_workspace:
+          at: .
+      - run:
+          name: Start plain-HTTP registry
+          command: |
+            docker run -d -p 5000:5000 registry:2
+            timeout 30 sh -c 'until curl -sf http://localhost:5000/v2/; do sleep 1; done'
+      - smoke:
+          platform: linux/amd64
+          run: "TestAcceptance_(BuildAndPush|MultiArch|SBOM|Check)"
+
+  build-remote-smoke:
+    executor: base
+    steps:
+      - setup_remote_docker
+      - attach_workspace:
+          at: .
+      - smoke:
+          platform: linux/amd64
+          run: TestAcceptance_BuildOnRemoteDocker
+
+  build-cache-cold:
+    executor: base
+    environment:
+      SETUP_DOCKER_TEST_CACHE_PHASE: cold
+      SETUP_DOCKER_TEST_CACHE_SCOPE: acceptance-<< pipeline.id >>
+    steps:
+      - setup_remote_docker
+      - attach_workspace:
+          at: .
+      - smoke:
+          platform: linux/amd64
+          run: TestAcceptance_BuildCache
+
+  build-cache-warm:
+    executor: base
+    environment:
+      SETUP_DOCKER_TEST_CACHE_PHASE: warm
+      SETUP_DOCKER_TEST_CACHE_SCOPE: acceptance-<< pipeline.id >>
+    steps:
+      - setup_remote_docker
+      - attach_workspace:
+          at: .
+      - smoke:
+          platform: linux/amd64
+          run: TestAcceptance_BuildCache
+
 workflows:
   test-publish:
     jobs:
@@ -217,6 +269,14 @@ workflows:
           requires: [build]
       - login-smoke:
           requires: [build]
+      - build-smoke:
+          requires: [build]
+      - build-remote-smoke:
+          requires: [build]
+      - build-cache-cold:
+          requires: [build]
+      - build-cache-warm:
+          requires: [build-cache-cold]
       - toolkit/release-pr:
           name: release-pr
           executor: go
@@ -232,6 +292,10 @@ workflows:
             - smoke-windows
             - remote-docker-smoke
             - login-smoke
+            - build-smoke
+            - build-remote-smoke
+            - build-cache-cold
+            - build-cache-warm
           context: [github-release]
           filters:
             branches:
