@@ -235,6 +235,84 @@ Turn cache off or share it explicitly:
 `setup_remote_docker`, or a machine executor. macOS jobs need `DOCKER_HOST` pointing at
 a Linux daemon.
 
+## Merging per-platform builds
+
+`setup-docker/merge` combines per-platform images that were each pushed by digest into
+one multi-arch manifest index. This lets each architecture build natively in its own
+job, then a final job publishes a single tag that works everywhere.
+
+```yaml
+version: 2.1
+
+functions:
+  setup-docker: github.com/circleci-functions/setup-docker@v0.1.0
+
+jobs:
+  build-amd64:
+    machine:
+      image: ubuntu-2404:current
+    steps:
+      - checkout
+      - setup-docker/build:
+          with:
+            image: myorg/app
+            platforms: linux/amd64
+            push-by-digest: true
+            digest-file: digests/amd64
+      - persist_to_workspace:
+          root: .
+          paths: [digests]
+
+  build-arm64:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: arm.medium
+    steps:
+      - checkout
+      - setup-docker/build:
+          with:
+            image: myorg/app
+            platforms: linux/arm64
+            push-by-digest: true
+            digest-file: digests/arm64
+      - persist_to_workspace:
+          root: .
+          paths: [digests]
+
+  merge:
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - attach_workspace:
+          at: .
+      - setup-docker/login
+      - setup-docker/merge:
+          with:
+            image: myorg/app
+            tags: latest,1.2.3
+
+workflows:
+  main:
+    jobs:
+      - build-amd64
+      - build-arm64
+      - merge:
+          requires: [build-amd64, build-arm64]
+```
+
+The merge job needs no Docker daemon (`setup_remote_docker` is not required).
+
+### Arguments for `setup-docker/merge`
+
+| Argument | Default | Description |
+|------|---------|-------------|
+| `image` | | Image to publish, e.g. `myorg/app` or `ghcr.io/org/app`. Required. |
+| `registry` | `docker.io` | Registry prefixed to image when image names no registry. |
+| `tags` | | Tags, comma or newline separated. Empty uses `$CIRCLE_SHA1`. |
+| `digests-dir` | `digests` | Directory of digest files written by build with `push-by-digest`. |
+| `digest-file` | | Write the digest of the merged image to this path. |
+| `retries` | `3` | Times to retry a failed merge. |
+
 ## Platform support
 
 Linux and macOS on amd64 and arm64. Windows amd64 is supported for the Docker CLI,
