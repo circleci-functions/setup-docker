@@ -221,32 +221,6 @@ jobs:
           platform: linux/amd64
           run: TestAcceptance_BuildOnRemoteDocker
 
-  build-cache-cold:
-    executor: base
-    environment:
-      SETUP_DOCKER_TEST_CACHE_PHASE: cold
-      SETUP_DOCKER_TEST_CACHE_SCOPE: acceptance-<< pipeline.id >>
-    steps:
-      - setup_remote_docker
-      - attach_workspace:
-          at: .
-      - smoke:
-          platform: linux/amd64
-          run: TestAcceptance_BuildCache
-
-  build-cache-warm:
-    executor: base
-    environment:
-      SETUP_DOCKER_TEST_CACHE_PHASE: warm
-      SETUP_DOCKER_TEST_CACHE_SCOPE: acceptance-<< pipeline.id >>
-    steps:
-      - setup_remote_docker
-      - attach_workspace:
-          at: .
-      - smoke:
-          platform: linux/amd64
-          run: TestAcceptance_BuildCache
-
   fanout-amd64:
     executor: machine
     environment:
@@ -326,10 +300,6 @@ workflows:
           requires: [build]
       - build-remote-smoke:
           requires: [build]
-      - build-cache-cold:
-          requires: [build]
-      - build-cache-warm:
-          requires: [build-cache-cold]
       - fanout-amd64:
           requires: [build]
       - fanout-arm64:
@@ -353,8 +323,6 @@ workflows:
             - login-smoke
             - build-smoke
             - build-remote-smoke
-            - build-cache-cold
-            - build-cache-warm
             - fanout-amd64
             - fanout-arm64
             - fanout-merge

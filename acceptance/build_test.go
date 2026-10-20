@@ -90,7 +90,6 @@ func TestAcceptance_BuildAndPush(t *testing.T) {
 		"--digest-file", digestFile,
 		"--dockerfile", dockerfilePath,
 		"--buildkitd-config", cfgPath,
-		"--cache=false",
 	)
 	out := r.StdoutString() + r.StderrString()
 	assert.NilError(t, err, "build failed: %s", out)
@@ -132,7 +131,6 @@ func TestAcceptance_MultiArch(t *testing.T) {
 		"--push",
 		"--dockerfile", dockerfilePath,
 		"--buildkitd-config", cfgPath,
-		"--cache=false",
 	)
 	out := r.StdoutString() + r.StderrString()
 	assert.NilError(t, err, "multi-arch build failed: %s", out)
@@ -187,7 +185,6 @@ func TestAcceptance_SBOM(t *testing.T) {
 		"--sbom-file", sbomFile,
 		"--dockerfile", dockerfilePath,
 		"--buildkitd-config", cfgPath,
-		"--cache=false",
 	)
 	out := r.StdoutString() + r.StderrString()
 	assert.NilError(t, err, "sbom build failed: %s", out)
@@ -246,7 +243,6 @@ func TestAcceptance_Check(t *testing.T) {
 		"--image", "acc/check",
 		"--check",
 		"--dockerfile", dockerfilePath,
-		"--cache=false",
 	)
 	out := r.StdoutString() + r.StderrString()
 	assert.NilError(t, err, "check with warnings should succeed: %s", out)
@@ -259,7 +255,6 @@ func TestAcceptance_Check(t *testing.T) {
 		"--check",
 		"--check-warnings-as-errors",
 		"--dockerfile", dockerfilePath,
-		"--cache=false",
 	)
 	assert.Assert(t, err != nil, "check-warnings-as-errors should fail: %s",
 		r2.StdoutString()+r2.StderrString())
@@ -279,7 +274,6 @@ func TestAcceptance_BuildOnRemoteDocker(t *testing.T) {
 		"--image", "acc/remote",
 		"--tags", "t",
 		"--dockerfile", dockerfilePath,
-		"--cache=false",
 	)
 	out := r.StdoutString() + r.StderrString()
 	assert.NilError(t, err, "build failed: %s", out)
@@ -288,42 +282,4 @@ func TestAcceptance_BuildOnRemoteDocker(t *testing.T) {
 	assert.NilError(t, runErr, "docker run failed: %s", got)
 	assert.Assert(t, cmp.Contains(string(got), "hello from build"),
 		"expected 'hello from build' in output: %s", got)
-}
-
-// TestAcceptance_BuildCache tests the layer cache restore/save cycle.
-// Requires SETUP_DOCKER_TEST_CACHE_PHASE (cold|warm) and SETUP_DOCKER_TEST_CACHE_SCOPE.
-func TestAcceptance_BuildCache(t *testing.T) {
-	phase := os.Getenv("SETUP_DOCKER_TEST_CACHE_PHASE")
-	scope := os.Getenv("SETUP_DOCKER_TEST_CACHE_SCOPE")
-	if phase == "" || scope == "" {
-		t.Skip("SETUP_DOCKER_TEST_CACHE_PHASE and SETUP_DOCKER_TEST_CACHE_SCOPE must be set")
-	}
-	skipUnlessRemoteDocker(t)
-	ensureDockerInstalled(t)
-
-	dockerfilePath := filepath.Join(t.TempDir(), "Dockerfile")
-	assert.NilError(t, os.WriteFile(dockerfilePath,
-		[]byte("FROM alpine:3.22\nRUN sleep 3 && echo $((6*7))-computed\n"), 0o600))
-
-	r := runner.New(t, binaryPath, runner.WithUnsafeOSEnvVars())
-	_, err := r.Run("build",
-		"--image", "acc/cache",
-		"--cache-scope", scope,
-		"--dockerfile", dockerfilePath,
-	)
-	out := r.StdoutString() + r.StderrString()
-	assert.NilError(t, err, "build failed: %s", out)
-
-	switch phase {
-	case "cold":
-		assert.Assert(t, cmp.Contains(out, "42-computed"),
-			"cold phase should execute RUN and show output: %s", out)
-	case "warm":
-		assert.Assert(t, cmp.Contains(out, "CACHED"),
-			"warm phase should use cache: %s", out)
-		assert.Assert(t, !strings.Contains(out, "42-computed"),
-			"warm phase must not re-execute RUN: %s", out)
-	default:
-		t.Fatalf("unknown SETUP_DOCKER_TEST_CACHE_PHASE: %s", phase)
-	}
 }

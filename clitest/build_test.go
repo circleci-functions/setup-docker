@@ -99,7 +99,6 @@ func TestCLI_Build_FlagsProduceExpectedArgs(t *testing.T) {
 		"--push",
 		"--build-args=A=1\nB=x,y",
 		"--digest-file="+digestFile,
-		"--cache=false",
 	)
 	assert.NilError(t, err, "build failed:\n%s", out)
 
@@ -173,7 +172,6 @@ func TestCLI_Build_Windows_Push(t *testing.T) {
 		"--tags=t",
 		"--push=true",
 		"--digest-file="+digestFile,
-		"--cache=false",
 	)
 	assert.NilError(t, err, "build failed:\n%s", out)
 
@@ -206,8 +204,7 @@ func TestCLI_Build_Windows_Push(t *testing.T) {
 	assert.Check(t, cmp.Equal(string(digest), "sha256:pushdigest123"), "digest mismatch")
 }
 
-// TestCLI_Build_Windows_BuildKitError verifies that BuildKit-only flags fail on
-// a Windows engine and that the cache notice is printed.
+// TestCLI_Build_Windows_BuildKitError verifies that BuildKit-only flags fail on a Windows engine.
 func TestCLI_Build_Windows_BuildKitError(t *testing.T) {
 	skipBuildOnWindows(t)
 	_, run := sandbox(t)
@@ -225,7 +222,6 @@ func TestCLI_Build_Windows_BuildKitError(t *testing.T) {
 	assert.Assert(t, err != nil, "expected error for platforms on Windows")
 	assert.Assert(t, cmp.Contains(out, "BuildKit"), "expected BuildKit in error: %s", out)
 	assert.Assert(t, cmp.Contains(out, "Windows containers"), "expected Windows containers in message: %s", out)
-	assert.Assert(t, cmp.Contains(out, "layer cache"), "expected cache notice: %s", out)
 }
 
 // TestCLI_Build_WritesNoBashEnv verifies nothing is written to $BASH_ENV.
@@ -239,28 +235,9 @@ func TestCLI_Build_WritesNoBashEnv(t *testing.T) {
 		"PATH":        dockerDir + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"CIRCLE_SHA1": "deadbeef",
 		"BASH_ENV":    bashEnvFile,
-	}, "build", "--image=myorg/app", "--tags=v1", "--cache=false")
+	}, "build", "--image=myorg/app", "--tags=v1")
 	assert.NilError(t, err)
 
 	_, statErr := os.Stat(bashEnvFile)
 	assert.Assert(t, os.IsNotExist(statErr), "BASH_ENV must not be written, got: %v", statErr)
-}
-
-// TestCLI_Build_CacheFalsePassesNoLocalCacheArgs verifies --cache=false omits type=local args.
-func TestCLI_Build_CacheFalsePassesNoLocalCacheArgs(t *testing.T) {
-	skipBuildOnWindows(t)
-	_, run := sandbox(t)
-	dockerDir, argFile := newFakeBuildDocker(t)
-
-	_, err := run(t, map[string]string{
-		"PATH":        dockerDir + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"CIRCLE_SHA1": "deadbeef",
-	}, "build", "--image=myorg/app", "--tags=v1", "--cache=false")
-	assert.NilError(t, err)
-
-	lines := readBuildArgLines(t, argFile)
-	bl := buildLine(lines)
-	assert.Assert(t, bl != "", "no buildx build line found in: %v", lines)
-	assert.Assert(t, !strings.Contains(bl, "type=local"),
-		"expected no type=local cache arg when --cache=false: %s", bl)
 }

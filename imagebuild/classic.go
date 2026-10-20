@@ -85,10 +85,6 @@ func pushDigest(output string) (string, bool) {
 // buildClassic builds with the classic docker builder (DOCKER_BUILDKIT=0).
 // It is used when the Docker engine runs Windows containers.
 func buildClassic(ctx context.Context, f Flags, imgRefs []string) (Result, error) {
-	if f.Cache {
-		fmt.Fprintf(os.Stderr, "setup-docker: the layer cache isn't available for Windows containers; building without it\n")
-	}
-
 	if err := validateClassic(f); err != nil {
 		return Result{}, err
 	}

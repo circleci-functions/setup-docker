@@ -2,6 +2,7 @@ package imagebuild
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,7 +10,29 @@ import (
 	"time"
 )
 
+// builderName is fixed so that Docker Layer Caching (DLC) keeps the builder's
+// volume between jobs and gives a warm BuildKit cache.
 const builderName = "setup-docker"
+
+// archToEmulator maps a Linux architecture name to its QEMU emulator name.
+var archToEmulator = map[string]string{
+	"amd64":   "qemu-x86_64",
+	"arm64":   "qemu-aarch64",
+	"arm":     "qemu-arm",
+	"386":     "qemu-i386",
+	"ppc64le": "qemu-ppc64le",
+	"s390x":   "qemu-s390x",
+	"riscv64": "qemu-riscv64",
+}
+
+// archForPlatform returns the architecture component of a linux/arch[/variant] string.
+func archForPlatform(platform string) string {
+	arch := strings.TrimPrefix(platform, "linux/")
+	if i := strings.Index(arch, "/"); i >= 0 {
+		arch = arch[:i]
+	}
+	return arch
+}
 
 // engineOS returns the OS type reported by the Docker engine.
 // It returns a user-friendly error when the engine is unreachable.
@@ -67,42 +90,107 @@ func ensureBuilder(ctx context.Context, f Flags) (string, error) {
 	return "", fmt.Errorf("create builder: %w", lastErr)
 }
 
-// ensureQEMU installs QEMU binfmt handlers for any platform in the list that
-// differs from the engine's native architecture. Does nothing when all
-// platforms are native.
-func ensureQEMU(ctx context.Context, platforms []string) error {
+// binfmtStatus is the JSON output of tonistiigi/binfmt with no arguments.
+type binfmtStatus struct {
+	Emulators []string `json:"emulators"`
+}
+
+// registeredEmulators returns the set of emulator names currently registered.
+func registeredEmulators(ctx context.Context) (map[string]bool, error) {
+	out, err := exec.CommandContext(ctx, "docker", "run", "--privileged", "--rm", binfmtImage).Output()
+	if err != nil {
+		return nil, err
+	}
+	var status binfmtStatus
+	if err := json.Unmarshal(out, &status); err != nil {
+		return nil, err
+	}
+	result := make(map[string]bool, len(status.Emulators))
+	for _, e := range status.Emulators {
+		result[e] = true
+	}
+	return result, nil
+}
+
+// ensureQEMU installs QEMU binfmt handlers for foreign platforms that are not
+// already registered. It returns the emulator names it installed; the caller
+// should uninstall them when the build is done.
+func ensureQEMU(ctx context.Context, platforms []string) ([]string, error) {
 	if len(platforms) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	nativeArch, err := engineArch(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	var foreign []string
 	for _, p := range platforms {
-		// Only care about linux/<arch> platforms.
 		if !strings.HasPrefix(p, "linux/") {
 			continue
 		}
-		arch := strings.TrimPrefix(p, "linux/")
+		arch := archForPlatform(p)
 		if arch != nativeArch {
 			foreign = append(foreign, arch)
 		}
 	}
 	if len(foreign) == 0 {
-		return nil
+		return nil, nil
+	}
+
+	registered, err := registeredEmulators(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "setup-docker: could not read registered emulators: %v\n", err)
+	}
+
+	var toInstall []string
+	for _, arch := range foreign {
+		if registered[archToEmulator[arch]] {
+			continue
+		}
+		toInstall = append(toInstall, arch)
+	}
+	if len(toInstall) == 0 {
+		return nil, nil
 	}
 
 	cmd := exec.CommandContext(ctx,
 		"docker", "run", "--privileged", "--rm",
 		binfmtImage,
-		"--install", strings.Join(foreign, ","),
+		"--install", strings.Join(toInstall, ","),
 	)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return nil, err
+	}
+
+	var installed []string
+	for _, arch := range toInstall {
+		if emulator, ok := archToEmulator[arch]; ok {
+			installed = append(installed, emulator)
+		}
+	}
+	return installed, nil
+}
+
+// uninstallEmulators removes the QEMU binfmt handlers that ensureQEMU installed.
+// Errors are logged to stderr; the build is never failed because of them.
+func uninstallEmulators(ctx context.Context, emulators []string) {
+	if len(emulators) == 0 {
+		return
+	}
+	cmd := exec.CommandContext(ctx,
+		"docker", "run", "--privileged", "--rm",
+		binfmtImage,
+		"--uninstall", strings.Join(emulators, ","),
+	)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "setup-docker: failed to uninstall QEMU emulators %v: %v\n", emulators, err)
+	}
 }
 
 // engineArch returns the normalised architecture of the Docker engine

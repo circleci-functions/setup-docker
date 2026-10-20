@@ -18,8 +18,6 @@ type Flags struct {
 	SecretEnvs            string `help:"Build secrets from environment variables, comma or newline separated: ID=ENV_NAME, or ENV_NAME to use it as the ID."`
 	Pull                  bool   `help:"Always pull newer base images."`
 	NoCache               bool   `help:"Build without using any cache."`
-	Cache                 bool   `default:"true" help:"Cache layers in the CircleCI job cache, restored before the build and saved at the end of the job."`
-	CacheScope            string `help:"Separates the layer cache of different images. Empty uses the image name."`
 	CacheFrom             string `help:"Extra cache sources, whitespace separated, e.g. type=registry,ref=org/app:cache."`
 	CacheTo               string `help:"Extra cache destinations, whitespace separated."`
 	Provenance            bool   `help:"Attach a provenance attestation."`

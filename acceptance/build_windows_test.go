@@ -35,7 +35,6 @@ func TestAcceptance_WindowsClassicBuild(t *testing.T) {
 		"--tags", "t",
 		"--dockerfile", dockerfile,
 		"--context", contextDir,
-		"--cache=false",
 	)
 	out := r.StdoutString() + r.StderrString()
 	assert.NilError(t, err, "build failed: %s", out)
@@ -52,7 +51,6 @@ func TestAcceptance_WindowsClassicBuild(t *testing.T) {
 		"--dockerfile", dockerfile,
 		"--context", contextDir,
 		"--platforms", "linux/amd64",
-		"--cache=false",
 	)
 	out2 := r2.StdoutString() + r2.StderrString()
 	assert.Assert(t, err != nil, "expected error for platforms on Windows: %s", out2)

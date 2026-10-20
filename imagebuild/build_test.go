@@ -11,8 +11,6 @@ import (
 
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
-
-	"github.com/circleci-functions/toolkit/sdk/sdktest"
 )
 
 // fakeDocker writes argv lines to a file and exits with the given behaviour.
@@ -94,77 +92,6 @@ func TestCheckParsing(t *testing.T) {
 	}
 }
 
-// TestCacheKeys verifies the key structure.
-func TestCacheKeys(t *testing.T) {
-	t.Setenv("CIRCLE_BRANCH", "main")
-	t.Setenv("CIRCLE_SHA1", "abc123")
-
-	f := Flags{Image: "myorg/app", Registry: "docker.io", Cache: true}
-	saveKey, restoreKeys := cacheKeys(f)
-
-	assert.Check(t, strings.Contains(saveKey, "setup-docker-buildx-v1-"), "save key missing prefix")
-	assert.Check(t, strings.Contains(saveKey, "main"), "save key missing branch")
-	assert.Check(t, strings.Contains(saveKey, "abc123"), "save key missing sha")
-	assert.Equal(t, len(restoreKeys), 2)
-	assert.Check(t, strings.HasPrefix(saveKey, restoreKeys[0]),
-		"save key should extend first restore key:\nsave: %q\nrestore[0]: %q", saveKey, restoreKeys[0])
-	assert.Check(t, strings.HasPrefix(restoreKeys[0], restoreKeys[1]),
-		"restore[0] should extend restore[1]:\n%q\n%q", restoreKeys[0], restoreKeys[1])
-}
-
-// TestCacheScope verifies scope derivation.
-func TestCacheScope(t *testing.T) {
-	tests := []struct {
-		name  string
-		f     Flags
-		scope string
-	}{
-		{name: "ExplicitScope", f: Flags{CacheScope: "my-scope"}, scope: "my-scope"},
-		{name: "ImageScope", f: Flags{Image: "myorg/App"}, scope: "myorg-app"},
-		{name: "GhcrImage", f: Flags{Image: "ghcr.io/org/app"}, scope: "ghcr-io-org-app"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, cacheScope(tt.f), tt.scope)
-		})
-	}
-}
-
-// TestCacheRoundTrip saves and restores a file through sdktest.
-func TestCacheRoundTrip(t *testing.T) {
-	srv := sdktest.NewServer(t)
-	client := srv.Client()
-	ctx := context.Background()
-
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("CIRCLE_BRANCH", "main")
-	t.Setenv("CIRCLE_SHA1", "deadbeef")
-
-	f := Flags{Image: "myorg/app", Registry: "docker.io", Cache: true}
-
-	scope := cacheScope(f)
-	dir, err := cacheDir(scope)
-	assert.NilError(t, err)
-
-	newDir := dir + ".new"
-	assert.NilError(t, os.MkdirAll(newDir, 0750))
-	assert.NilError(t, os.WriteFile(filepath.Join(newDir, "marker"), []byte("cached"), 0600))
-
-	saveKey, _ := cacheKeys(f)
-	assert.NilError(t, client.SaveCache(ctx, saveKey, []string{newDir}))
-
-	assert.NilError(t, os.RemoveAll(newDir))
-	assert.NilError(t, os.RemoveAll(dir))
-
-	assert.Check(t, cmp.Equal(restoreCache(ctx, client, f), dir))
-
-	got, readErr := os.ReadFile(filepath.Join(dir, "marker")) //nolint:gosec
-	assert.NilError(t, readErr)
-	assert.Check(t, cmp.Equal(string(got), "cached"))
-	_, statErr := os.Stat(newDir)
-	assert.Check(t, os.IsNotExist(statErr), "the restored export dir becomes the import dir")
-}
-
 // TestEnsureBuilder_InspectSucceeds verifies that when inspect succeeds, create is not called.
 func TestEnsureBuilder_InspectSucceeds(t *testing.T) {
 	logFile := writeFakeDocker(t, `# always succeed
@@ -208,25 +135,54 @@ esac
 	assert.Check(t, found, "expected buildx create with moby/buildkit and network=host in log, got: %v", lines)
 }
 
+// TestArchForPlatform verifies the arch extraction from platform strings.
+func TestArchForPlatform(t *testing.T) {
+	tests := []struct {
+		platform string
+		want     string
+	}{
+		{"linux/amd64", "amd64"},
+		{"linux/arm64", "arm64"},
+		{"linux/arm/v7", "arm"},
+		{"linux/arm/v6", "arm"},
+		{"linux/386", "386"},
+		{"linux/ppc64le", "ppc64le"},
+		{"linux/s390x", "s390x"},
+		{"linux/riscv64", "riscv64"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.platform, func(t *testing.T) {
+			assert.Equal(t, archForPlatform(tt.platform), tt.want)
+		})
+	}
+}
+
 // TestEnsureQEMU_ForeignArch verifies QEMU is installed for a foreign arch.
 func TestEnsureQEMU_ForeignArch(t *testing.T) {
 	logFile := writeFakeDocker(t, `case "$*" in
   *"{{.Architecture}}"*) echo "x86_64" ;;
+  *"--privileged"*"--rm"*)
+    case "$*" in
+      *"--install"*) ;;
+      *) echo '{"emulators":[]}' ;;
+    esac
+    ;;
 esac
 exit 0
 `)
-	err := ensureQEMU(context.Background(), []string{"linux/arm64"})
+	installed, err := ensureQEMU(context.Background(), []string{"linux/arm64"})
 	assert.NilError(t, err)
+	assert.DeepEqual(t, installed, []string{"qemu-aarch64"})
 
 	lines := readLog(t, logFile)
 	found := false
 	for _, l := range lines {
-		if strings.Contains(l, "binfmt") {
+		if strings.Contains(l, "binfmt") && strings.Contains(l, "--install") {
 			found = true
 			break
 		}
 	}
-	assert.Check(t, found, "expected binfmt call for foreign arch, got: %v", lines)
+	assert.Check(t, found, "expected binfmt --install call for foreign arch, got: %v", lines)
 }
 
 // TestEnsureQEMU_NativeOnly verifies QEMU is skipped for native platforms.
@@ -236,14 +192,56 @@ func TestEnsureQEMU_NativeOnly(t *testing.T) {
 esac
 exit 0
 `)
-	err := ensureQEMU(context.Background(), []string{"linux/amd64"})
+	installed, err := ensureQEMU(context.Background(), []string{"linux/amd64"})
 	assert.NilError(t, err)
+	assert.Equal(t, len(installed), 0)
 
 	lines := readLog(t, logFile)
 	for _, l := range lines {
 		assert.Check(t, !strings.Contains(l, "binfmt"),
 			"expected no binfmt call for native arch, got: %v", lines)
 	}
+}
+
+// TestEnsureQEMU_SkipsAlreadyRegistered verifies that arches already registered
+// are not reinstalled.
+func TestEnsureQEMU_SkipsAlreadyRegistered(t *testing.T) {
+	logFile := writeFakeDocker(t, `case "$*" in
+  *"{{.Architecture}}"*) echo "x86_64" ;;
+  *"--privileged"*"--rm"*)
+    case "$*" in
+      *"--install"*) ;;
+      *) echo '{"emulators":["qemu-aarch64"]}' ;;
+    esac
+    ;;
+esac
+exit 0
+`)
+	installed, err := ensureQEMU(context.Background(), []string{"linux/arm64"})
+	assert.NilError(t, err)
+	assert.Equal(t, len(installed), 0, "arm64 already registered; should not install")
+
+	lines := readLog(t, logFile)
+	for _, l := range lines {
+		assert.Check(t, !strings.Contains(l, "--install"),
+			"expected no --install for already-registered emulator: %v", lines)
+	}
+}
+
+// TestUninstallEmulators_CallsDockerRun verifies the uninstall command arguments.
+func TestUninstallEmulators_CallsDockerRun(t *testing.T) {
+	logFile := writeFakeDocker(t, `exit 0`)
+	uninstallEmulators(context.Background(), []string{"qemu-aarch64", "qemu-arm"})
+
+	lines := readLog(t, logFile)
+	found := false
+	for _, l := range lines {
+		if strings.Contains(l, "--uninstall") && strings.Contains(l, "qemu-aarch64") && strings.Contains(l, "qemu-arm") {
+			found = true
+			break
+		}
+	}
+	assert.Check(t, found, "expected --uninstall with emulator names, got: %v", lines)
 }
 
 // TestBuild_RetryOnPushFailure verifies that push failures trigger retries.
@@ -275,8 +273,6 @@ case "$1 $2" in
 esac
 `)
 
-	srv := sdktest.NewServer(t)
-	client := srv.Client()
 	ctx := context.Background()
 
 	t.Setenv("HOME", t.TempDir())
@@ -290,11 +286,10 @@ esac
 		Context:    ".",
 		Load:       "false",
 		Push:       true,
-		Cache:      false,
 		Retries:    3,
 	}
 
-	result, err := Build(ctx, client, f)
+	result, err := Build(ctx, f)
 	assert.NilError(t, err)
 	assert.Check(t, cmp.DeepEqual(result.Refs, []string{"docker.io/myorg/app:v1"}))
 
@@ -323,8 +318,6 @@ case "$1 $2" in
 esac
 `)
 
-	srv := sdktest.NewServer(t)
-	client := srv.Client()
 	ctx := context.Background()
 
 	t.Setenv("HOME", t.TempDir())
@@ -338,11 +331,10 @@ esac
 		Context:    ".",
 		Load:       "false",
 		Push:       true,
-		Cache:      false,
 		Retries:    3,
 	}
 
-	_, err := Build(ctx, client, f)
+	_, err := Build(ctx, f)
 	assert.Assert(t, err != nil)
 
 	lines := readLog(t, logFile)
@@ -376,8 +368,6 @@ case "$1 $2" in
 esac
 `)
 
-	srv := sdktest.NewServer(t)
-	client := srv.Client()
 	ctx := context.Background()
 
 	t.Setenv("HOME", t.TempDir())
@@ -391,12 +381,11 @@ esac
 		Dockerfile: "Dockerfile",
 		Context:    ".",
 		Load:       "false",
-		Cache:      false,
 		Retries:    3,
 		DigestFile: digestFile,
 	}
 
-	result, err := Build(ctx, client, f)
+	result, err := Build(ctx, f)
 	assert.NilError(t, err)
 	assert.Equal(t, result.Digest, "sha256:deadbeef")
 
