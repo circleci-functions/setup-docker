@@ -15,7 +15,7 @@ import (
 type cli struct {
 	Install installCmd `cmd:"" default:"withargs" help:"Install the Docker CLI and its plugins. Runs when no command is given."`
 	Login   loginCmd   `cmd:"" help:"Log in to a container registry."`
-	Build   buildCmd   `cmd:"" help:"Build an image with buildx, with a layer cache in the job cache, and optionally push it."`
+	Build   buildCmd   `cmd:"" help:"Build an image with buildx and optionally push it."`
 	Merge   mergeCmd   `cmd:"" help:"Combine per-platform images pushed by digest into one multi-platform tag."`
 	Lint    lintCmd    `cmd:"" help:"Lint Dockerfiles with hadolint."`
 }

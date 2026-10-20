@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/circleci-functions/toolkit/sdk"
-
 	"github.com/circleci-functions/setup-docker/install"
 )
 
@@ -24,7 +22,7 @@ type Result struct {
 }
 
 // Build builds a container image according to f and returns the result.
-func Build(ctx context.Context, client *sdk.Client, f Flags) (Result, error) {
+func Build(ctx context.Context, f Flags) (Result, error) {
 	if err := validate(f); err != nil {
 		return Result{}, err
 	}
@@ -42,11 +40,14 @@ func Build(ctx context.Context, client *sdk.Client, f Flags) (Result, error) {
 		return buildClassic(ctx, f, imgRefs)
 	}
 
-	p, err := prepareBuild(ctx, client, f)
+	p, err := prepareBuild(ctx, f)
 	if err != nil {
 		return Result{}, err
 	}
 	defer os.Remove(p.metadataFile)
+	if len(p.installedEmulators) > 0 {
+		defer uninstallEmulators(context.WithoutCancel(ctx), p.installedEmulators)
+	}
 
 	args := buildArgs(f, p)
 
@@ -60,12 +61,12 @@ func Build(ctx context.Context, client *sdk.Client, f Flags) (Result, error) {
 		return Result{}, err
 	}
 
-	return finaliseBuild(ctx, client, f, p)
+	return finaliseBuild(ctx, f, p)
 }
 
-// prepareBuild installs buildx, sets up the builder and cache, returning a
-// ready plan. Called only for Linux engines; Windows takes the classic path.
-func prepareBuild(ctx context.Context, client *sdk.Client, f Flags) (plan, error) {
+// prepareBuild installs buildx and sets up the builder, returning a ready plan.
+// Called only for Linux engines; Windows takes the classic path.
+func prepareBuild(ctx context.Context, f Flags) (plan, error) {
 	if _, err := install.New("").BuildxAtLeast(ctx, install.Current(), minBuildxVersion); err != nil {
 		return plan{}, fmt.Errorf("ensure buildx: %w", err)
 	}
@@ -75,14 +76,14 @@ func prepareBuild(ctx context.Context, client *sdk.Client, f Flags) (plan, error
 		return plan{}, err
 	}
 
+	var installed []string
 	platforms := parsePlatforms(f.Platforms)
 	if len(platforms) > 0 {
-		if err := ensureQEMU(ctx, platforms); err != nil {
+		installed, err = ensureQEMU(ctx, platforms)
+		if err != nil {
 			return plan{}, fmt.Errorf("ensure QEMU: %w", err)
 		}
 	}
-
-	cacheDirectory := restoreCache(ctx, client, f)
 
 	imgRefs, err := refs(f, os.Getenv("CIRCLE_SHA1"))
 	if err != nil {
@@ -96,18 +97,17 @@ func prepareBuild(ctx context.Context, client *sdk.Client, f Flags) (plan, error
 	_ = metaFile.Close()
 
 	return plan{
-		builder:      builder,
-		refs:         imgRefs,
-		load:         loadFor(f),
-		cacheDir:     cacheDirectory,
-		metadataFile: metaFile.Name(),
-		sbomGen:      sbomScannerImage,
+		builder:            builder,
+		refs:               imgRefs,
+		load:               loadFor(f),
+		metadataFile:       metaFile.Name(),
+		sbomGen:            sbomScannerImage,
+		installedEmulators: installed,
 	}, nil
 }
 
-// finaliseBuild reads the digest, writes output files, registers the cache
-// save, and prints the summary line.
-func finaliseBuild(ctx context.Context, client *sdk.Client, f Flags, p plan) (Result, error) {
+// finaliseBuild reads the digest, writes output files, and prints the summary line.
+func finaliseBuild(ctx context.Context, f Flags, p plan) (Result, error) {
 	digest, err := readDigest(p.metadataFile)
 	if err != nil {
 		return Result{}, err
@@ -124,8 +124,6 @@ func finaliseBuild(ctx context.Context, client *sdk.Client, f Flags, p plan) (Re
 			return Result{}, err
 		}
 	}
-
-	registerCacheSave(ctx, client, f, p.cacheDir)
 
 	suffix := ""
 	if f.Push || f.PushByDigest {

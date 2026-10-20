@@ -156,27 +156,30 @@ registries) to build and push images with buildx.
             push: true
 ```
 
-**Layer cache** (on by default, keyed by branch with a fallback, saved at the end of the
-job even when it fails):
+**Caching between jobs:** turn on Docker Layer Caching (DLC). `build` uses a builder
+named `setup-docker`, which DLC keeps between jobs, so BuildKit starts with the previous
+job's layers:
 
 ```yaml
+      - setup_remote_docker:
+          docker_layer_caching: true
       - setup-docker/build:
           with:
             image: myorg/app
             tags: latest
-            # cache-scope separates caches for different images in the same pipeline
-            cache-scope: my-app
-            # push: true  # add to also push
 ```
 
-Turn cache off or share it explicitly:
+On a `machine` executor, set `docker_layer_caching: true` under `machine`. To keep the
+cache in a registry instead, use `cache-from` and `cache-to`:
 
 ```yaml
       - setup-docker/build:
           with:
             image: myorg/app
             tags: latest
-            cache: false        # disable CI layer cache
+            cache-from: type=registry,ref=myorg/app:cache
+            cache-to: type=registry,ref=myorg/app:cache,mode=max
+            push: true
 ```
 
 **Check, SBOM, push-by-digest, and build-args:**
@@ -214,8 +217,6 @@ Turn cache off or share it explicitly:
 | `secret-envs` | | Build secrets from env vars, comma or newline separated. |
 | `pull` | | Always pull newer base images. |
 | `no-cache` | | Disable Docker's build cache. |
-| `cache` | `true` | Cache layers in the CircleCI job cache. |
-| `cache-scope` | | Separates layer caches for different images. Empty uses the image name. |
 | `cache-from` | | Extra cache sources, whitespace separated. |
 | `cache-to` | | Extra cache destinations, whitespace separated. |
 | `provenance` | | Attach a provenance attestation. |
@@ -234,10 +235,14 @@ Turn cache off or share it explicitly:
 On Windows executors, `build` builds Windows container images with Docker's classic
 builder. The following arguments are not available on Windows: `platforms`, `cache-from`,
 `cache-to`, `sbom`, `sbom-file`, `provenance`, `secret-envs`, `check`, `push-by-digest`,
-`buildkitd-config`, and `load=false`. The layer cache is also unavailable on Windows.
+`buildkitd-config`, and `load=false`.
 
 For Linux images, use a docker executor with `setup_remote_docker`, a machine executor,
 or point `DOCKER_HOST` at a Linux daemon. macOS jobs also need `DOCKER_HOST`.
+
+For multi-platform builds, `build` registers QEMU binfmt handlers for foreign platforms
+and removes them after the build. Handlers that were already registered before the build
+are left untouched.
 
 ## Merging per-platform builds
 

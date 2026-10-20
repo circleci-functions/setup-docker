@@ -2,20 +2,18 @@ package imagebuild
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"unicode"
 )
 
 // plan holds computed values used to assemble docker buildx build arguments.
 type plan struct {
-	builder      string
-	refs         []string
-	load         bool
-	cacheDir     string
-	metadataFile string
-	sbomGen      string
+	builder            string
+	refs               []string
+	load               bool
+	metadataFile       string
+	sbomGen            string
+	installedEmulators []string
 }
 
 // refs computes the full image references (registry/image:tag) from flags and a SHA.
@@ -141,7 +139,7 @@ func buildArgs(f Flags, p plan) []string {
 		args = append(args, "--target", f.Target)
 	}
 	args = appendBuildInputArgs(f, args)
-	args = appendCacheArgs(f, p, args)
+	args = appendCacheArgs(f, args)
 	args = appendAttestArgs(f, p, args)
 	args = appendOutputArgs(f, p, args)
 	args = append(args, "--metadata-file", p.metadataFile)
@@ -180,16 +178,9 @@ func appendBuildInputArgs(f Flags, args []string) []string {
 }
 
 // appendCacheArgs appends --cache-from and --cache-to entries.
-func appendCacheArgs(f Flags, p plan, args []string) []string {
+func appendCacheArgs(f Flags, args []string) []string {
 	for _, entry := range strings.Fields(f.CacheFrom) {
 		args = append(args, "--cache-from", entry)
-	}
-	if f.Cache && p.cacheDir != "" {
-		indexFile := filepath.Join(p.cacheDir, "index.json")
-		if _, err := os.Stat(indexFile); err == nil {
-			args = append(args, "--cache-from", "type=local,src="+p.cacheDir)
-		}
-		args = append(args, "--cache-to", "type=local,dest="+p.cacheDir+".new,mode=max")
 	}
 	for _, entry := range strings.Fields(f.CacheTo) {
 		args = append(args, "--cache-to", entry)

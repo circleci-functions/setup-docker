@@ -1,8 +1,6 @@
 package imagebuild
 
 import (
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -107,7 +105,6 @@ func TestBuildArgs(t *testing.T) {
 			Dockerfile: "Dockerfile",
 			Context:    ".",
 			Load:       "auto",
-			Cache:      true,
 			Retries:    3,
 		}
 	}
@@ -272,40 +269,6 @@ func TestBuildArgs(t *testing.T) {
 			checks: []func(t *testing.T, args []string){
 				contains("--pull"),
 				contains("--no-cache"),
-			},
-		},
-		{
-			name: "CachePairPresentWhenIndexExists",
-			flags: func() Flags {
-				f := baseFlags()
-				f.Cache = true
-				return f
-			},
-			plan: func(dir string) plan {
-				// Create index.json so --cache-from fires.
-				_ = os.MkdirAll(dir, 0750)
-				_ = os.WriteFile(filepath.Join(dir, "index.json"), []byte("{}"), 0600)
-				return plan{builder: "b", refs: baseRefs, load: true, cacheDir: dir, metadataFile: "/tmp/m.json"}
-			},
-			checks: []func(t *testing.T, args []string){
-				containsAll("--cache-from", "type=local,src="),
-				containsAll("--cache-to", "type=local,dest="),
-			},
-		},
-		{
-			name: "CacheFromAbsentWhenNoIndex",
-			flags: func() Flags {
-				f := baseFlags()
-				f.Cache = true
-				return f
-			},
-			plan: func(dir string) plan {
-				// No index.json, so --cache-from should NOT appear.
-				return plan{builder: "b", refs: baseRefs, load: true, cacheDir: dir, metadataFile: "/tmp/m.json"}
-			},
-			checks: []func(t *testing.T, args []string){
-				notContains("type=local,src="),
-				containsAll("--cache-to", "type=local,dest="),
 			},
 		},
 		{
