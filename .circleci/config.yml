@@ -35,6 +35,10 @@ commands:
         type: string
         default: ""
         description: Executable suffix for the platform.
+      run:
+        type: string
+        default: TestAcceptance_LinksOntoTheRealPath|TestAcceptance_Lint
+        description: Test name to pass to -test.run.
     steps:
       - run:
           name: Run smoke test
@@ -47,7 +51,7 @@ commands:
               ./dist/tools/<< parameters.platform >>/test2json<< parameters.ext >> \
                 -p acceptance \
                 ./dist/acceptance/<< parameters.platform >>/acceptance<< parameters.ext >> \
-                -test.v=test2json -test.run TestAcceptance_LinksOntoTheRealPath
+                -test.v=test2json -test.run '<< parameters.run >>'
           environment:
             SETUP_DOCKER_BINARY: ./dist/setup-docker/<< parameters.platform >>/setup-docker<< parameters.ext >>
       - store_test_results:
@@ -153,26 +157,147 @@ jobs:
       - smoke:
           platform: windows/amd64
           ext: ".exe"
+          run: TestAcceptance_LinksOntoTheRealPath|TestAcceptance_Lint|TestAcceptance_WindowsClassicBuild
 
   remote-docker-smoke:
     executor: base
     steps:
-      - checkout
       - setup_remote_docker
       - attach_workspace:
           at: .
+      - smoke:
+          platform: linux/amd64
+          run: TestAcceptance_ComposeOnRemoteDocker
+
+  login-smoke:
+    executor: machine
+    environment:
+      SETUP_DOCKER_TEST_REGISTRY: localhost:5000
+      SETUP_DOCKER_TEST_REGISTRY_USER: testuser
+      SETUP_DOCKER_TEST_REGISTRY_PASS: testpass
+    steps:
+      - attach_workspace:
+          at: .
       - run:
-          name: Install Docker Compose via setup-docker
-          command: ./dist/setup-docker/linux/amd64/setup-docker --compose-version v2.29.7
-      - run:
-          name: Run compose file and assert output
+          name: Start local registry with htpasswd auth
           command: |
-            out=$(docker compose -f acceptance/testdata/compose.yml up --abort-on-container-exit 2>&1)
-            echo "$out"
-            echo "$out" | grep -q "hello from compose"
+            mkdir -p auth
+            docker run --rm --entrypoint htpasswd httpd:2 -Bbn testuser testpass > auth/htpasswd
+            docker run -d -p 5000:5000 \
+              -v "$PWD/auth:/auth" \
+              -e REGISTRY_AUTH=htpasswd \
+              -e REGISTRY_AUTH_HTPASSWD_REALM=test \
+              -e REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd \
+              registry:2
+            # An auth-enabled registry answers 401 once it's up.
+            timeout 30 sh -c 'until [ "$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/v2/)" = 401 ]; do sleep 1; done'
+      - smoke:
+          platform: linux/amd64
+          run: TestAcceptance_LoginToRegistry
+
+  build-smoke:
+    executor: machine
+    environment:
+      SETUP_DOCKER_TEST_PUSH_REGISTRY: localhost:5000
+    steps:
+      - attach_workspace:
+          at: .
       - run:
-          name: Verify docker-compose version
-          command: docker-compose version
+          name: Start plain-HTTP registry
+          command: |
+            docker run -d -p 5000:5000 registry:2
+            timeout 30 sh -c 'until curl -sf http://localhost:5000/v2/; do sleep 1; done'
+      - smoke:
+          platform: linux/amd64
+          run: "TestAcceptance_(BuildAndPush|MultiArch|SBOM|Check|Merge)"
+
+  build-remote-smoke:
+    executor: base
+    steps:
+      - setup_remote_docker
+      - attach_workspace:
+          at: .
+      - smoke:
+          platform: linux/amd64
+          run: TestAcceptance_BuildOnRemoteDocker
+
+  build-cache-cold:
+    executor: base
+    environment:
+      SETUP_DOCKER_TEST_CACHE_PHASE: cold
+      SETUP_DOCKER_TEST_CACHE_SCOPE: acceptance-<< pipeline.id >>
+    steps:
+      - setup_remote_docker
+      - attach_workspace:
+          at: .
+      - smoke:
+          platform: linux/amd64
+          run: TestAcceptance_BuildCache
+
+  build-cache-warm:
+    executor: base
+    environment:
+      SETUP_DOCKER_TEST_CACHE_PHASE: warm
+      SETUP_DOCKER_TEST_CACHE_SCOPE: acceptance-<< pipeline.id >>
+    steps:
+      - setup_remote_docker
+      - attach_workspace:
+          at: .
+      - smoke:
+          platform: linux/amd64
+          run: TestAcceptance_BuildCache
+
+  fanout-amd64:
+    executor: machine
+    environment:
+      SETUP_DOCKER_TEST_FANOUT_IMAGE: ttl.sh/setup-docker-acc-<< pipeline.id >>
+      SETUP_DOCKER_TEST_FANOUT_PHASE: build
+      SETUP_DOCKER_TEST_DIGESTS_DIR: digests
+    steps:
+      - attach_workspace:
+          at: .
+      - run: mkdir -p digests
+      - smoke:
+          platform: linux/amd64
+          run: TestAcceptance_FanOut
+      - persist_to_workspace:
+          root: .
+          paths:
+            - digests
+
+  fanout-arm64:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: arm.medium
+    environment:
+      SETUP_DOCKER_TEST_FANOUT_IMAGE: ttl.sh/setup-docker-acc-<< pipeline.id >>
+      SETUP_DOCKER_TEST_FANOUT_PHASE: build
+      SETUP_DOCKER_TEST_DIGESTS_DIR: digests
+    steps:
+      - attach_workspace:
+          at: .
+      - run: mkdir -p digests
+      - smoke:
+          platform: linux/arm64
+          run: TestAcceptance_FanOut
+      - persist_to_workspace:
+          root: .
+          paths:
+            - digests
+
+  fanout-merge:
+    docker:
+      - image: cimg/base:stable
+    environment:
+      SETUP_DOCKER_TEST_FANOUT_IMAGE: ttl.sh/setup-docker-acc-<< pipeline.id >>
+      SETUP_DOCKER_TEST_FANOUT_PHASE: merge
+      SETUP_DOCKER_TEST_DIGESTS_DIR: digests
+    steps:
+      - attach_workspace:
+          at: .
+      - smoke:
+          platform: linux/amd64
+          run: TestAcceptance_FanOut
 
 workflows:
   test-publish:
@@ -195,6 +320,22 @@ workflows:
           requires: [build]
       - remote-docker-smoke:
           requires: [build]
+      - login-smoke:
+          requires: [build]
+      - build-smoke:
+          requires: [build]
+      - build-remote-smoke:
+          requires: [build]
+      - build-cache-cold:
+          requires: [build]
+      - build-cache-warm:
+          requires: [build-cache-cold]
+      - fanout-amd64:
+          requires: [build]
+      - fanout-arm64:
+          requires: [build]
+      - fanout-merge:
+          requires: [build, fanout-amd64, fanout-arm64]
       - toolkit/release-pr:
           name: release-pr
           executor: go
@@ -209,6 +350,14 @@ workflows:
             - smoke-macos
             - smoke-windows
             - remote-docker-smoke
+            - login-smoke
+            - build-smoke
+            - build-remote-smoke
+            - build-cache-cold
+            - build-cache-warm
+            - fanout-amd64
+            - fanout-arm64
+            - fanout-merge
           context: [github-release]
           filters:
             branches:

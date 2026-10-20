@@ -14,6 +14,10 @@ import (
 
 type cli struct {
 	Install installCmd `cmd:"" default:"withargs" help:"Install the Docker CLI and its plugins. Runs when no command is given."`
+	Login   loginCmd   `cmd:"" help:"Log in to a container registry."`
+	Build   buildCmd   `cmd:"" help:"Build an image with buildx, with a layer cache in the job cache, and optionally push it."`
+	Merge   mergeCmd   `cmd:"" help:"Combine per-platform images pushed by digest into one multi-platform tag."`
+	Lint    lintCmd    `cmd:"" help:"Lint Dockerfiles with hadolint."`
 }
 
 func main() {
@@ -27,11 +31,13 @@ func run(ctx context.Context, client *sdk.Client) error {
 		kong.Description("Set up Docker in a CircleCI job: the Docker CLI, buildx and compose, and optionally dockerize and goss."),
 		kong.UsageOnError(),
 		kong.Vars{
-			"docker_version":    install.DefaultDockerVersion,
-			"buildx_version":    install.DefaultBuildxVersion,
-			"compose_version":   install.DefaultComposeVersion,
-			"dockerize_version": install.DefaultDockerizeVersion,
-			"goss_version":      install.DefaultGossVersion,
+			"docker_version":             install.DefaultDockerVersion,
+			"buildx_version":             install.DefaultBuildxVersion,
+			"compose_version":            install.DefaultComposeVersion,
+			"dockerize_version":          install.DefaultDockerizeVersion,
+			"goss_version":               install.DefaultGossVersion,
+			"credentials_helper_version": install.DefaultCredentialHelpersVersion,
+			"hadolint_version":           install.DefaultHadolintVersion,
 		},
 		functionyaml.Embed(),
 	)

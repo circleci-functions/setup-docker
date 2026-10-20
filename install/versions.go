@@ -1,11 +1,14 @@
 package install
 
 const (
-	DefaultDockerVersion    = "29.9.1"  // renovate: datasource=github-tags depName=docker/cli extractVersion=^v(?<version>.+)$
-	DefaultBuildxVersion    = "v0.38.0" // renovate: datasource=github-releases depName=docker/buildx
-	DefaultComposeVersion   = "v5.6.0"  // renovate: datasource=github-releases depName=docker/compose
-	DefaultDockerizeVersion = "v0.15.2" // renovate: datasource=github-releases depName=jwilder/dockerize
-	DefaultGossVersion      = "v0.4.10" // renovate: datasource=github-releases depName=goss-org/goss
+	DefaultDockerVersion            = "29.9.1"  // renovate: datasource=github-tags depName=docker/cli extractVersion=^v(?<version>.+)$
+	DefaultBuildxVersion            = "v0.38.0" // renovate: datasource=github-releases depName=docker/buildx
+	DefaultComposeVersion           = "v5.6.0"  // renovate: datasource=github-releases depName=docker/compose
+	DefaultDockerizeVersion         = "v0.15.2" // renovate: datasource=github-releases depName=jwilder/dockerize
+	DefaultGossVersion              = "v0.4.10" // renovate: datasource=github-releases depName=goss-org/goss
+	DefaultECRLoginVersion          = "0.12.0"  // renovate: datasource=github-releases depName=awslabs/amazon-ecr-credential-helper extractVersion=^v(?<version>.+)$
+	DefaultCredentialHelpersVersion = "v0.9.10" // renovate: datasource=github-releases depName=docker/docker-credential-helpers
+	DefaultHadolintVersion          = "v2.15.1" // renovate: datasource=github-releases depName=hadolint/hadolint
 )
 
 // download.docker.com publishes no checksums, so the default version's are kept here.

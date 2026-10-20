@@ -63,6 +63,49 @@ Release assets are checked against the checksums each project publishes.
 default Docker version is verified (its checksums ship with this function); any other
 Docker CLI version is downloaded over HTTPS with a warning.
 
+## Logging in
+
+Use `setup-docker/login` to authenticate with a container registry after installing Docker.
+
+**Docker Hub** (default env names):
+
+```yaml
+      - setup-docker/login
+```
+
+**GitHub Container Registry** with custom env names:
+
+```yaml
+      - setup-docker/login:
+          with:
+            registry: ghcr.io
+            username-env: GHCR_USER
+            password-env: GHCR_TOKEN
+```
+
+**Amazon ECR** after a step that sets up AWS credentials (no username or password needed):
+
+```yaml
+      - setup-docker/login:
+          with:
+            registry: 123456789012.dkr.ecr.us-east-1.amazonaws.com
+```
+
+ECR login uses `docker-credential-ecr-login`, which picks up AWS credentials from the
+environment automatically. No `DOCKER_LOGIN` or `DOCKER_PASSWORD` are read.
+
+### Arguments for `setup-docker/login`
+
+| Argument | Default | Description |
+|------|---------|-------------|
+| `registry` | `docker.io` | Registry to log in to. |
+| `username-env` | `DOCKER_LOGIN` | Name of the environment variable holding the username. |
+| `password-env` | `DOCKER_PASSWORD` | Name of the environment variable holding the password or token. |
+| `retries` | `3` | Times to retry a failed login, with increasing waits. |
+| `credentials-store` | | Store credentials with a credential helper instead of in the Docker config file. |
+| `credentials-helper` | | Credential helper to use (`pass` or `osxkeychain`). Empty picks `pass` on Linux and `osxkeychain` on macOS. |
+| `credentials-helper-version` | | Credential helper version. Empty installs the pinned version. |
+
 ## Remote Docker
 
 With `setup_remote_docker`, this function sets up the Docker client only. The engine
@@ -85,6 +128,222 @@ Passed under `with:`.
 | `dockerize-version` | | dockerize version, or `latest`. Empty keeps dockerize on `PATH`, else installs the pinned version. |
 | `goss-version` | | goss version, or `latest`. Empty keeps goss on `PATH`, else installs the pinned version. |
 | `install-dir` | | Link binaries into this directory instead of one already on `PATH`. |
+
+## Building and pushing
+
+Use `setup-docker/build` after `setup-docker` (or `setup-docker/login` for authenticated
+registries) to build and push images with buildx.
+
+**Docker Hub after login:**
+
+```yaml
+      - setup-docker/login
+      - setup-docker/build:
+          with:
+            image: myorg/app
+            tags: latest
+            push: true
+```
+
+**GHCR multi-arch:**
+
+```yaml
+      - setup-docker/build:
+          with:
+            image: ghcr.io/myorg/app
+            tags: latest
+            platforms: linux/amd64,linux/arm64
+            push: true
+```
+
+**Layer cache** (on by default, keyed by branch with a fallback, saved at the end of the
+job even when it fails):
+
+```yaml
+      - setup-docker/build:
+          with:
+            image: myorg/app
+            tags: latest
+            # cache-scope separates caches for different images in the same pipeline
+            cache-scope: my-app
+            # push: true  # add to also push
+```
+
+Turn cache off or share it explicitly:
+
+```yaml
+      - setup-docker/build:
+          with:
+            image: myorg/app
+            tags: latest
+            cache: false        # disable CI layer cache
+```
+
+**Check, SBOM, push-by-digest, and build-args:**
+
+```yaml
+      - setup-docker/build:
+          with:
+            image: myorg/app
+            tags: latest
+            check: true
+            sbom: true
+            sbom-file: /tmp/sbom.json
+            push-by-digest: true
+            digest-file: /tmp/digest.txt
+            build-args: |
+              APP_VERSION=1.2.3
+              BUILD_DATE=2025-01-01
+```
+
+### Arguments for `setup-docker/build`
+
+| Argument | Default | Description |
+|---|---|---|
+| `image` | (required) | Image to build, e.g. `myorg/app` or `ghcr.io/org/app`. |
+| `registry` | `docker.io` | Registry prefixed to image when image names no registry. |
+| `tags` | | Tags, comma or newline separated. Empty uses `$CIRCLE_SHA1`. |
+| `dockerfile` | | Path to the Dockerfile. Empty uses the `Dockerfile` in `context`. |
+| `context` | `.` | Build context directory. |
+| `target` | | Build stage to stop at. |
+| `platforms` | | Target platforms, comma separated, e.g. `linux/amd64,linux/arm64`. |
+| `push` | | Push the image after building. |
+| `load` | `auto` | Load into the Docker engine. `auto` loads single-platform non-push builds. |
+| `build-args` | | Build arguments, one `KEY=VALUE` per line. |
+| `labels` | | Image labels, one `KEY=VALUE` per line. |
+| `secret-envs` | | Build secrets from env vars, comma or newline separated. |
+| `pull` | | Always pull newer base images. |
+| `no-cache` | | Disable Docker's build cache. |
+| `cache` | `true` | Cache layers in the CircleCI job cache. |
+| `cache-scope` | | Separates layer caches for different images. Empty uses the image name. |
+| `cache-from` | | Extra cache sources, whitespace separated. |
+| `cache-to` | | Extra cache destinations, whitespace separated. |
+| `provenance` | | Attach a provenance attestation. |
+| `sbom` | | Attach an SBOM attestation. Needs `push` or `sbom-file`. |
+| `sbom-file` | | Also write the SBOM (SPDX JSON) to this path. |
+| `check` | | Run Dockerfile build checks first. Warnings are printed; errors fail the build. |
+| `check-warnings-as-errors` | | With `check`, fail on warnings too. |
+| `push-by-digest` | | Push without tags; write the digest to `digest-file`. |
+| `digest-file` | | Write the image digest to this path. |
+| `buildkitd-config` | | Path to a `buildkitd.toml`, e.g. for a registry mirror or plain HTTP. |
+| `extra-args` | | Extra `docker buildx build` arguments. |
+| `retries` | `3` | Times to retry a build that fails while pushing. |
+
+### Platform note
+
+On Windows executors, `build` builds Windows container images with Docker's classic
+builder. The following arguments are not available on Windows: `platforms`, `cache-from`,
+`cache-to`, `sbom`, `sbom-file`, `provenance`, `secret-envs`, `check`, `push-by-digest`,
+`buildkitd-config`, and `load=false`. The layer cache is also unavailable on Windows.
+
+For Linux images, use a docker executor with `setup_remote_docker`, a machine executor,
+or point `DOCKER_HOST` at a Linux daemon. macOS jobs also need `DOCKER_HOST`.
+
+## Merging per-platform builds
+
+`setup-docker/merge` combines per-platform images that were each pushed by digest into
+one multi-arch manifest index. This lets each architecture build natively in its own
+job, then a final job publishes a single tag that works everywhere.
+
+```yaml
+version: 2.1
+
+functions:
+  setup-docker: github.com/circleci-functions/setup-docker@v0.1.0
+
+jobs:
+  build-amd64:
+    machine:
+      image: ubuntu-2404:current
+    steps:
+      - checkout
+      - setup-docker/build:
+          with:
+            image: myorg/app
+            platforms: linux/amd64
+            push-by-digest: true
+            digest-file: digests/amd64
+      - persist_to_workspace:
+          root: .
+          paths: [digests]
+
+  build-arm64:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: arm.medium
+    steps:
+      - checkout
+      - setup-docker/build:
+          with:
+            image: myorg/app
+            platforms: linux/arm64
+            push-by-digest: true
+            digest-file: digests/arm64
+      - persist_to_workspace:
+          root: .
+          paths: [digests]
+
+  merge:
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - attach_workspace:
+          at: .
+      - setup-docker/login
+      - setup-docker/merge:
+          with:
+            image: myorg/app
+            tags: latest,1.2.3
+
+workflows:
+  main:
+    jobs:
+      - build-amd64
+      - build-arm64
+      - merge:
+          requires: [build-amd64, build-arm64]
+```
+
+The merge job needs no Docker daemon (`setup_remote_docker` is not required).
+
+### Arguments for `setup-docker/merge`
+
+| Argument | Default | Description |
+|------|---------|-------------|
+| `image` | | Image to publish, e.g. `myorg/app` or `ghcr.io/org/app`. Required. |
+| `registry` | `docker.io` | Registry prefixed to image when image names no registry. |
+| `tags` | | Tags, comma or newline separated. Empty uses `$CIRCLE_SHA1`. |
+| `digests-dir` | `digests` | Directory of digest files written by build with `push-by-digest`. |
+| `digest-file` | | Write the digest of the merged image to this path. |
+| `retries` | `3` | Times to retry a failed merge. |
+
+## Linting Dockerfiles
+
+Use `setup-docker/lint` to lint Dockerfiles with [hadolint](https://github.com/hadolint/hadolint).
+Results can be collected for the Test Summary tab via `store_test_results`.
+
+```yaml
+      - setup-docker/lint:
+          with:
+            dockerfiles: Dockerfile
+            failure-threshold: warning
+            ignore-rules: DL3008,SC2086
+            trusted-registries: docker.io
+            results-file: test-results/hadolint.xml
+      - store_test_results:
+          path: test-results
+```
+
+### Arguments for `setup-docker/lint`
+
+| Argument | Default | Description |
+|------|---------|-------------|
+| `dockerfiles` | `Dockerfile` | Dockerfiles to lint, newline or colon separated (semicolon on Windows). |
+| `failure-threshold` | `info` | Fail on findings at or above this level: `error`, `warning`, `info`, `style`, `ignore`, `none`. As in hadolint, `style`, `ignore` and `none` fail on any finding. |
+| `ignore-rules` | | Rules to ignore, comma separated, e.g. `DL3008,SC2086`. |
+| `trusted-registries` | | Registries base images may come from, comma separated. Others are reported. |
+| `results-file` | | Also write the findings as JUnit XML to this path, for `store_test_results`. |
+| `hadolint-version` | | hadolint version, or `latest`. Empty installs the pinned version. |
 
 ## Platform support
 
