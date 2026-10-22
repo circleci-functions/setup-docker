@@ -6,6 +6,18 @@ by its release PR (see [RELEASE.md](RELEASE.md)) and becomes its GitHub release 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-20
+
+### What's Changed
+* Update module golang.org/x/text to v0.41.0 [SECURITY] by @renovate[bot] in https://github.com/circleci-functions/setup-docker/pull/10
+* Update module golang.org/x/mod to v0.40.0 [SECURITY] by @renovate[bot] in https://github.com/circleci-functions/setup-docker/pull/9
+* Remove build's layer cache in favour of DLC by @stiyyagura0901 in https://github.com/circleci-functions/setup-docker/pull/21
+
+### New Contributors
+* @renovate[bot] made their first contribution in https://github.com/circleci-functions/setup-docker/pull/10
+
+**Full Changelog**: https://github.com/circleci-functions/setup-docker/compare/v0.3.0...v0.4.0
+
 ## [0.3.0] - 2026-10-19
 
 ### What's Changed
