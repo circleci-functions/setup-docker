@@ -62,7 +62,6 @@ jobs:
     executor: go
     steps:
       - checkout
-      - toolkit/private-mod-init
       - restore_cache:
           keys:
             - setup-docker-go-{{ checksum "go.sum" }}-
@@ -84,7 +83,6 @@ jobs:
     executor: go
     steps:
       - checkout
-      - toolkit/private-mod-init
       - restore_cache:
           keys:
             - setup-docker-go-{{ checksum "go.sum" }}-
@@ -102,7 +100,6 @@ jobs:
     executor: go
     steps:
       - checkout
-      - toolkit/private-mod-init
       - restore_cache:
           keys:
             - setup-docker-go-{{ checksum "go.sum" }}-
@@ -276,12 +273,9 @@ jobs:
 workflows:
   test-publish:
     jobs:
-      - test:
-          context: [github-readonly]
-      - build:
-          context: [github-readonly]
-      - acceptance:
-          context: [github-readonly]
+      - test
+      - build
+      - acceptance
       - bare-smoke:
           requires: [build]
       - smoke-machine:
