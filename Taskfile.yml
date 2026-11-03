@@ -102,6 +102,11 @@ tasks:
     cmds:
       - go tool release --name setup-docker --version "{{.VERSION}}"
 
+  publish-prerelease:
+    desc: Build and publish this commit as a pre-release, without making it the latest
+    cmds:
+      - go tool release --name setup-docker --prerelease
+
   docker-checksums:
     desc: Print dockerSHA256 map entries for a given Docker VERSION
     requires:
