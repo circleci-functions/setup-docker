@@ -39,7 +39,7 @@ func run(ctx context.Context, client *sdk.Client) error {
 			"credentials_helper_version": install.DefaultCredentialHelpersVersion,
 			"hadolint_version":           install.DefaultHadolintVersion,
 		},
-		functionyaml.Embed(),
+		functionyaml.Embed(outputs...),
 	)
 	kCtx.BindTo(ctx, (*context.Context)(nil))
 	kCtx.Bind(client)
