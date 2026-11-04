@@ -3,7 +3,7 @@
 Installs the Docker CLI, the buildx and compose plugins, and optionally dockerize and
 goss, for the rest of the job.
 
-Use this function instead of the circleci/docker orb.
+Use this function instead of the `circleci/docker` orb.
 
 ```yaml
 version: 2.1
