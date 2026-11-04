@@ -28,7 +28,7 @@ func run(ctx context.Context, client *sdk.Client) error {
 	var flags cli
 	kCtx := kong.Parse(&flags,
 		kong.Name("setup-docker"),
-		kong.Description("Set up Docker in a CircleCI job: the Docker CLI, buildx and compose, and optionally dockerize and goss."),
+		kong.Description("Set up Docker in a CircleCI job: the Docker CLI, buildx and compose, and optionally dockerize and goss. Use this function instead of the circleci/docker orb."),
 		kong.UsageOnError(),
 		kong.Vars{
 			"docker_version":             install.DefaultDockerVersion,
