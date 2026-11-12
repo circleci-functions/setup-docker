@@ -51,7 +51,7 @@ and hash. It never becomes the latest, `circleci function list` and `get` show i
 `--include-pseudo`, and it's deleted after 30 days. Triggering it again on the same commit
 publishes nothing new.
 
-Only maintainers can publish a pre-release.
+Only maintainers can publish a pre-release, and only from a branch other than `main`.
 
 ## Credentials
 
