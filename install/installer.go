@@ -15,6 +15,8 @@ type Installer struct {
 	CacheDir         string
 	HTTP             *http.Client
 	SystemPluginDirs []string
+	// RetryWait is the first wait between download attempts, doubling after each. Zero means 1s.
+	RetryWait time.Duration
 }
 
 func New(linkDir string) Installer {

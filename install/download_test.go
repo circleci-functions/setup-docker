@@ -25,6 +25,7 @@ func testInstaller(srv *httptest.Server) Installer {
 	return Installer{
 		GitHubURL: srv.URL,
 		DockerURL: srv.URL,
+		RetryWait: time.Millisecond,
 		HTTP: &http.Client{
 			Timeout: 10 * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -48,35 +49,42 @@ func TestFetch(t *testing.T) {
 			},
 		},
 		{
-			name: "404 not retried",
-			handler: func() http.HandlerFunc {
-				var n atomic.Int32
-				return func(w http.ResponseWriter, r *http.Request) {
-					n.Add(1)
-					w.WriteHeader(http.StatusNotFound)
-				}
-			}(),
+			name:    "404 not retried",
+			handler: status(http.StatusNotFound),
 			wantErr: "404",
 			wantN:   1,
 		},
 		{
-			name: "500 then 200 retries",
-			handler: func() http.HandlerFunc {
-				var n atomic.Int32
-				return func(w http.ResponseWriter, r *http.Request) {
-					if n.Add(1) == 1 {
-						w.WriteHeader(http.StatusInternalServerError)
-						return
-					}
-					fmt.Fprint(w, "ok")
-				}
-			}(),
+			name:    "403 not retried",
+			handler: status(http.StatusForbidden),
+			wantErr: "403",
+			wantN:   1,
+		},
+		{
+			name:    "500 retried until attempts run out",
+			handler: status(http.StatusInternalServerError),
+			wantErr: "500",
+			wantN:   downloadAttempts,
+		},
+		{
+			name:    "500 then 200 retries",
+			handler: failFirst(http.StatusInternalServerError),
+			wantN:   2,
+		},
+		{
+			name:    "429 then 200 retries",
+			handler: failFirst(http.StatusTooManyRequests),
+			wantN:   2,
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := httptest.NewServer(tc.handler)
+			var n atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				n.Add(1)
+				tc.handler(w, r)
+			}))
 			defer srv.Close()
 
 			ins := testInstaller(srv)
@@ -87,8 +95,36 @@ func TestFetch(t *testing.T) {
 			} else {
 				assert.NilError(t, err)
 			}
+			if tc.wantN != 0 {
+				assert.Check(t, cmp.Equal(int(n.Load()), tc.wantN))
+			}
 		})
 	}
+}
+
+func status(code int) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(code)
+	}
+}
+
+func failFirst(code int) http.HandlerFunc {
+	var n atomic.Int32
+	return func(w http.ResponseWriter, r *http.Request) {
+		if n.Add(1) == 1 {
+			w.WriteHeader(code)
+			return
+		}
+		fmt.Fprint(w, "ok")
+	}
+}
+
+func TestRetryDelayHonoursRetryAfter(t *testing.T) {
+	err := &statusError{code: http.StatusTooManyRequests, retryAfter: 5 * time.Second}
+	assert.Check(t, cmp.Equal(retryDelay(err, time.Second), 5*time.Second))
+
+	err.retryAfter = time.Hour
+	assert.Check(t, cmp.Equal(retryDelay(err, time.Second), time.Minute))
 }
 
 func TestFetchContextCancelled(t *testing.T) {
@@ -98,6 +134,7 @@ func TestFetchContextCancelled(t *testing.T) {
 	defer srv.Close()
 
 	ins := testInstaller(srv)
+	ins.RetryWait = time.Second
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Cancel immediately after the first attempt begins.
