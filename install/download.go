@@ -10,44 +10,53 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
 
-const downloadRetries = 3
+// downloadAttempts, with waits doubling from 1s, keeps retrying for about a minute.
+const downloadAttempts = 7
 
 func (i Installer) get(ctx context.Context, url string, read func(io.Reader) error) error {
-	var lastErr error
-	for attempt := 1; attempt <= downloadRetries; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		if err != nil {
+	wait := i.RetryWait
+	if wait == 0 {
+		wait = time.Second
+	}
+	for attempt := 1; ; attempt++ {
+		err := i.try(ctx, url, read)
+		if err == nil || isNotFound(err) {
 			return err
 		}
-		resp, err := i.HTTP.Do(req)
-		if err != nil {
-			lastErr = err
-		} else {
-			lastErr = i.consumeResponse(resp, url, read)
-			if lastErr == nil {
-				return nil
-			}
+		if !retryable(err) || attempt == downloadAttempts {
+			return fmt.Errorf("fetch %s: %w", url, err)
 		}
-		if isNotFound(lastErr) {
-			return lastErr
+		delay := retryDelay(err, wait)
+		fmt.Fprintf(os.Stderr, "setup-docker: %v, retrying in %s\n", err, delay.Round(time.Millisecond))
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
 		}
-		if attempt < downloadRetries {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(time.Duration(attempt) * time.Second):
-			}
-		}
+		wait *= 2
 	}
-	return fmt.Errorf("fetch %s: %w", url, lastErr)
+}
+
+func (i Installer) try(ctx context.Context, url string, read func(io.Reader) error) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := i.HTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	return i.consumeResponse(resp, url, read)
 }
 
 func (i Installer) consumeResponse(resp *http.Response, url string, read func(io.Reader) error) error {
@@ -56,9 +65,42 @@ func (i Installer) consumeResponse(resp *http.Response, url string, read func(io
 		return &notFoundError{url: url}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s: %s", url, resp.Status)
+		retryAfter, _ := strconv.Atoi(resp.Header.Get("Retry-After"))
+		return &statusError{
+			msg:        fmt.Sprintf("GET %s: %s", url, resp.Status),
+			code:       resp.StatusCode,
+			retryAfter: time.Duration(retryAfter) * time.Second,
+		}
 	}
 	return read(resp.Body)
+}
+
+type statusError struct {
+	msg        string
+	code       int
+	retryAfter time.Duration
+}
+
+func (e *statusError) Error() string { return e.msg }
+
+// retryable reports whether err may pass on its own: network errors, server errors and rate limits.
+func retryable(err error) bool {
+	var se *statusError
+	if errors.As(err, &se) {
+		return se.code >= 500 || se.code == http.StatusTooManyRequests
+	}
+	return true
+}
+
+// retryDelay adds jitter so jobs failing together don't retry together, and honours
+// Retry-After up to a minute.
+func retryDelay(err error, wait time.Duration) time.Duration {
+	delay := wait + rand.N(wait/2+1) //nolint:gosec // jitter needs no cryptographic randomness
+	var se *statusError
+	if errors.As(err, &se) && se.retryAfter > delay {
+		delay = min(se.retryAfter, time.Minute)
+	}
+	return delay
 }
 
 func (i Installer) fetch(ctx context.Context, url, dest string) error {
