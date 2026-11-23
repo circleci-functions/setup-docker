@@ -27,6 +27,7 @@ type Config struct {
 	CredentialsStore         bool
 	CredentialsHelper        string
 	CredentialsHelperVersion string
+	GCPKeyEnv                string
 	DownloadURL              string
 }
 
@@ -34,6 +35,9 @@ type Config struct {
 func Login(ctx context.Context, ins install.Installer, p install.Platform, cfg Config) error {
 	if ecrRe.MatchString(cfg.Registry) {
 		return loginECR(ctx, ins, p, cfg)
+	}
+	if garRe.MatchString(cfg.Registry) {
+		return loginGAR(ctx, ins, p, cfg)
 	}
 	return loginPassword(ctx, ins, p, cfg)
 }

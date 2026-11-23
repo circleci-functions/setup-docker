@@ -1,7 +1,9 @@
 # setup-docker
 
 Installs the Docker CLI, the buildx and compose plugins, and optionally dockerize and
-goss, for the rest of the job.
+goss, for the rest of the job. Subcommands log in to registries (Docker Hub, GHCR, Amazon
+ECR, Google Artifact Registry), build and push images, merge multi-platform builds, lint
+Dockerfiles, and check that a built image starts healthy.
 
 Use this function instead of the `circleci/docker` orb.
 
@@ -96,6 +98,22 @@ Use `setup-docker/login` to authenticate with a container registry after install
 ECR login uses `docker-credential-ecr-login`, which picks up AWS credentials from the
 environment automatically. No `DOCKER_LOGIN` or `DOCKER_PASSWORD` are read.
 
+**Google Artifact Registry** (`*-docker.pkg.dev`, and `gcr.io` domains) with a service
+account key in `GCLOUD_SERVICE_KEY`, as JSON or base64:
+
+```yaml
+      - setup-docker/login:
+          with:
+            registry: us-docker.pkg.dev
+```
+
+Artifact Registry login uses `docker-credential-gcr`, which reads Google Application
+Default Credentials whenever Docker needs a token. The key is written to the default
+credentials file (`~/.config/gcloud/application_default_credentials.json`), so later steps
+push and pull with no extra environment. If `GOOGLE_APPLICATION_CREDENTIALS` is set or that
+file already exists, for example from an earlier step using OIDC, the key isn't needed and
+the existing credentials are used. Login fails straight away if no token can be had.
+
 ### Arguments for `setup-docker/login`
 
 | Argument | Default | Description |
@@ -107,6 +125,7 @@ environment automatically. No `DOCKER_LOGIN` or `DOCKER_PASSWORD` are read.
 | `credentials-store` | | Store credentials with a credential helper instead of in the Docker config file. |
 | `credentials-helper` | | Credential helper to use (`pass` or `osxkeychain`). Empty picks `pass` on Linux and `osxkeychain` on macOS. |
 | `credentials-helper-version` | | Credential helper version. Empty installs the pinned version. |
+| `gcp-key-env` | `GCLOUD_SERVICE_KEY` | For Artifact Registry: name of the environment variable holding a service account key. Not needed if Google credentials are already set up. |
 
 ## Remote Docker
 
@@ -146,6 +165,23 @@ registries) to build and push images with buildx.
             tags: latest
             push: true
 ```
+
+**Artifact Registry with BuildKit secrets:**
+
+```yaml
+      - setup-docker/login:
+          with:
+            registry: us-docker.pkg.dev
+      - setup-docker/build:
+          with:
+            image: us-docker.pkg.dev/my-project/my-repo/app
+            tags: ${CIRCLE_SHA1}
+            secret-envs: NPM_TOKEN
+            push: true
+```
+
+The Dockerfile reads the secret with `RUN --mount=type=secret,id=NPM_TOKEN`; it isn't
+stored in the image.
 
 **GHCR multi-arch:**
 
@@ -323,6 +359,51 @@ The merge job needs no Docker daemon (`setup_remote_docker` is not required).
 | `digests-dir` | `digests` | Directory of digest files written by build with `push-by-digest`. |
 | `digest-file` | | Write the digest of the merged image to this path. |
 | `retries` | `3` | Times to retry a failed merge. |
+
+## Checking a built image's health
+
+`setup-docker/health` starts an image, waits until it's healthy, and removes the
+container. With `path`, it waits for that HTTP endpoint to answer with a 2xx. Without
+`path`, it waits for the image's `HEALTHCHECK`. It fails if the container exits first or
+isn't healthy within `timeout`, and prints the container's last 100 log lines.
+
+```yaml
+      - setup-docker/build:
+          with:
+            image: myorg/api
+            tags: test
+      - setup-docker/health:
+          with:
+            image: myorg/api:test
+            port: 8080
+            path: /healthz
+            env: |
+              APP_ENV=ci
+            pass-env: DATABASE_URL,API_KEY
+```
+
+Values named in `pass-env` are read from the job's environment and never appear on the
+command line, so use it for secrets.
+
+The endpoint is checked from a small container (`probe-image`) that shares the app
+container's network, so no ports are published and it works the same with
+`setup_remote_docker`, where the job can't reach the engine's ports.
+Without `path`, it polls the `HEALTHCHECK` every 2 seconds rather than at the image's own
+interval. Linux and macOS executors only.
+
+### Arguments for `setup-docker/health`
+
+| Argument | Default | Description |
+|------|---------|-------------|
+| `image` | (required) | Image to run, e.g. `myorg/app:test`. Pulled if it isn't in the Docker engine. |
+| `port` | `8080` | Container port the health endpoint listens on. |
+| `path` | | HTTP path to check, e.g. `/healthz`. Empty waits for the image's `HEALTHCHECK`. |
+| `env` | | Environment variables for the container, one `KEY=VALUE` per line. |
+| `pass-env` | | Names of job environment variables to pass to the container, comma or newline separated. |
+| `timeout` | `60` | Seconds to wait for the container to be healthy. |
+| `command` | | Command to run instead of the image's `CMD`. |
+| `run-args` | | Extra `docker run` arguments, e.g. `--network my-net`. |
+| `probe-image` | pinned `busybox` | Image with `wget` that checks the endpoint. Override it to use a mirror. |
 
 ## Linting Dockerfiles
 

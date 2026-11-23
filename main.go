@@ -9,6 +9,7 @@ import (
 	"github.com/circleci-functions/toolkit/functionyaml"
 	"github.com/circleci-functions/toolkit/sdk"
 
+	"github.com/circleci-functions/setup-docker/health"
 	"github.com/circleci-functions/setup-docker/install"
 )
 
@@ -18,6 +19,7 @@ type cli struct {
 	Build   buildCmd   `cmd:"" help:"Build an image with buildx and optionally push it."`
 	Merge   mergeCmd   `cmd:"" help:"Combine per-platform images pushed by digest into one multi-platform tag."`
 	Lint    lintCmd    `cmd:"" help:"Lint Dockerfiles with hadolint."`
+	Health  healthCmd  `cmd:"" help:"Start an image and fail unless its health endpoint or HEALTHCHECK reports healthy."`
 }
 
 func main() {
@@ -28,7 +30,7 @@ func run(ctx context.Context, client *sdk.Client) error {
 	var flags cli
 	kCtx := kong.Parse(&flags,
 		kong.Name("setup-docker"),
-		kong.Description("Set up Docker in a CircleCI job: the Docker CLI, buildx and compose, and optionally dockerize and goss. Use this function instead of the circleci/docker orb."),
+		kong.Description("Set up Docker in a CircleCI job: install the Docker CLI, buildx and compose; log in to Docker Hub, GHCR, Amazon ECR or Google Artifact Registry; build and push images; merge multi-platform builds; lint Dockerfiles; and check that a built image starts healthy. Use this function instead of the circleci/docker orb."),
 		kong.UsageOnError(),
 		kong.Vars{
 			"docker_version":             install.DefaultDockerVersion,
@@ -38,6 +40,7 @@ func run(ctx context.Context, client *sdk.Client) error {
 			"goss_version":               install.DefaultGossVersion,
 			"credentials_helper_version": install.DefaultCredentialHelpersVersion,
 			"hadolint_version":           install.DefaultHadolintVersion,
+			"probe_image":                health.DefaultProbeImage,
 		},
 		functionyaml.Embed(),
 	)

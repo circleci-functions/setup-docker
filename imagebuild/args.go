@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+
+	"github.com/circleci-functions/setup-docker/shellwords"
 )
 
 // plan holds computed values used to assemble docker buildx build arguments.
@@ -143,7 +145,7 @@ func buildArgs(f Flags, p plan) []string {
 	args = appendAttestArgs(f, p, args)
 	args = appendOutputArgs(f, p, args)
 	args = append(args, "--metadata-file", p.metadataFile)
-	extra, _ := splitShellWords(f.ExtraArgs)
+	extra, _ := shellwords.Split(f.ExtraArgs)
 	args = append(args, extra...)
 	args = append(args, f.Context)
 	return args
@@ -256,69 +258,4 @@ func parseSecretEnv(s string) (id, env string) {
 		return s[:i], s[i+1:]
 	}
 	return s, s
-}
-
-// shellParser holds state for splitShellWords.
-type shellParser struct {
-	cur      strings.Builder
-	inSingle bool
-	inDouble bool
-	escape   bool
-}
-
-func (p *shellParser) consumeByte(c byte) (flush bool) {
-	if p.escape {
-		p.cur.WriteByte(c)
-		p.escape = false
-		return false
-	}
-	switch {
-	case c == '\\' && !p.inSingle:
-		p.escape = true
-	case c == '\'' && !p.inDouble:
-		p.inSingle = !p.inSingle
-	case c == '"' && !p.inSingle:
-		p.inDouble = !p.inDouble
-	case isShellSpace(c) && !p.inSingle && !p.inDouble:
-		return true
-	default:
-		p.cur.WriteByte(c)
-	}
-	return false
-}
-
-func (p *shellParser) endError() error {
-	switch {
-	case p.inSingle:
-		return fmt.Errorf("unterminated single quote in extra-args")
-	case p.inDouble:
-		return fmt.Errorf("unterminated double quote in extra-args")
-	case p.escape:
-		return fmt.Errorf("trailing backslash in extra-args")
-	}
-	return nil
-}
-
-func isShellSpace(c byte) bool {
-	return c == ' ' || c == '\t' || c == '\n'
-}
-
-// splitShellWords splits s like a POSIX shell, supporting single/double quotes
-// and backslash escapes. It never evaluates variables or runs subshells.
-func splitShellWords(s string) ([]string, error) {
-	var words []string
-	p := &shellParser{}
-	for i := 0; i < len(s); i++ {
-		if p.consumeByte(s[i]) && p.cur.Len() > 0 {
-			words = append(words, p.cur.String())
-			p.cur.Reset()
-		}
-	}
-	if err := p.endError(); err != nil {
-		return nil, err
-	}
-	if p.cur.Len() > 0 {
-		words = append(words, p.cur.String())
-	}
-	return words, nil
 }

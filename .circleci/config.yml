@@ -45,7 +45,7 @@ commands:
         description: Executable suffix for the platform.
       run:
         type: string
-        default: TestAcceptance_LinksOntoTheRealPath|TestAcceptance_Lint
+        default: TestAcceptance_LinksOntoTheRealPath|TestAcceptance_Lint|TestAcceptance_LoginGAR
         description: Test name to pass to -test.run.
     steps:
       - run:
@@ -162,7 +162,7 @@ jobs:
       - smoke:
           platform: windows/amd64
           ext: ".exe"
-          run: TestAcceptance_LinksOntoTheRealPath|TestAcceptance_Lint|TestAcceptance_WindowsClassicBuild
+          run: TestAcceptance_LinksOntoTheRealPath|TestAcceptance_Lint|TestAcceptance_LoginGAR|TestAcceptance_WindowsClassicBuild
 
   remote-docker-smoke:
     executor: base
@@ -214,7 +214,7 @@ jobs:
             timeout 30 sh -c 'until curl -sf http://localhost:5000/v2/; do sleep 1; done'
       - smoke:
           platform: linux/amd64
-          run: "TestAcceptance_(BuildAndPush|MultiArch|SBOM|Check|Merge)"
+          run: "TestAcceptance_(BuildAndPush|MultiArch|SBOM|Check|Merge|Health)"
 
   build-remote-smoke:
     executor: base
@@ -224,7 +224,7 @@ jobs:
           at: .
       - smoke:
           platform: linux/amd64
-          run: TestAcceptance_BuildOnRemoteDocker
+          run: TestAcceptance_BuildOnRemoteDocker|TestAcceptance_Health
 
   fanout-amd64:
     executor: machine
