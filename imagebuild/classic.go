@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/circleci-functions/setup-docker/shellwords"
 )
 
 // validateClassic returns an error for each argument that requires BuildKit.
@@ -61,7 +63,7 @@ func classicBuildArgs(f Flags, imgRefs []string) []string {
 	if f.NoCache {
 		args = append(args, "--no-cache")
 	}
-	extra, _ := splitShellWords(f.ExtraArgs)
+	extra, _ := shellwords.Split(f.ExtraArgs)
 	args = append(args, extra...)
 	args = append(args, f.Context)
 	return args

@@ -17,6 +17,7 @@ type loginCmd struct {
 	CredentialsStore         bool   `help:"Store credentials with a credential helper instead of in the Docker config file."`
 	CredentialsHelper        string `enum:",pass,osxkeychain" default:"" help:"Credential helper to use. Empty picks pass on Linux and osxkeychain on macOS."`
 	CredentialsHelperVersion string `help:"Credential helper version, or latest. Empty installs ${credentials_helper_version}."`
+	GCPKeyEnv                string `name:"gcp-key-env" default:"GCLOUD_SERVICE_KEY" help:"For Artifact Registry: name of the environment variable holding a service account key, as JSON or base64. Not needed if Google credentials are already set up."`
 	DownloadURL              string `hidden:"" help:"Base URL to download from in place of github.com and the ECR helper's download host."`
 }
 
@@ -33,6 +34,7 @@ func (c *loginCmd) Run(ctx context.Context, _ *sdk.Client) error {
 		CredentialsStore:         c.CredentialsStore,
 		CredentialsHelper:        c.CredentialsHelper,
 		CredentialsHelperVersion: c.CredentialsHelperVersion,
+		GCPKeyEnv:                c.GCPKeyEnv,
 		DownloadURL:              c.DownloadURL,
 	})
 }

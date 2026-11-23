@@ -9,6 +9,7 @@ const (
 	DefaultECRLoginVersion          = "0.12.0"  // renovate: datasource=github-releases depName=awslabs/amazon-ecr-credential-helper extractVersion=^v(?<version>.+)$
 	DefaultCredentialHelpersVersion = "v0.9.10" // renovate: datasource=github-releases depName=docker/docker-credential-helpers
 	DefaultHadolintVersion          = "v2.15.1" // renovate: datasource=github-releases depName=hadolint/hadolint
+	DefaultGCRHelperVersion         = "2.2.2"   // renovate: datasource=github-releases depName=GoogleCloudPlatform/docker-credential-gcr extractVersion=^v(?<version>.+)$
 )
 
 // download.docker.com publishes no checksums, so the default version's are kept here.
